@@ -1,7 +1,7 @@
 # releases-private
 
 Private release automation for OpenClaw's real macOS signing, notarization,
-Sparkle appcast generation, and GitHub release asset upload.
+Sparkle appcast generation, and packaged release artifact generation.
 
 The source of truth stays in `openclaw/openclaw`:
 
@@ -11,8 +11,8 @@ The source of truth stays in `openclaw/openclaw`:
 - npm publish workflow
 - `appcast.xml` on `main`
 
-This repo exists so Apple signing, notarization, Sparkle signing, and the
-cross-repo upload token do not live in `openclaw/openclaw`.
+This repo exists so Apple signing, notarization, and Sparkle signing do not
+live in `openclaw/openclaw`.
 
 ## Workflow
 
@@ -20,36 +20,31 @@ cross-repo upload token do not live in `openclaw/openclaw`.
   `.github/workflows/openclaw-macos-publish.yml`
 - The workflow checks out `openclaw/openclaw` at `refs/tags/<tag>` and uses the
   public repo's packaging scripts directly.
+- Every successful run uploads the packaged macOS artifacts to this workflow as
+  `macos-smoke-<tag>`, `macos-preflight-<tag>`, or `macos-release-<tag>`.
 - Stable releases upload a `macos-appcast-<tag>` artifact here, but the workflow
   never pushes `appcast.xml` back to `main`.
+- Real publish runs do not upload to the public GitHub release automatically.
+  An agent or maintainer must download `macos-release-<tag>` and upload the
+  `.zip`, `.dmg`, and `.dSYM.zip` files to the existing release in
+  `openclaw/openclaw`.
+- No GitHub App secret is required for the workflow anymore. Public source
+  checkout and appcast seeding happen without extra credentials, and the public
+  release upload happens outside Actions.
+- `smoke_test_only=true` is available for branch-safe workflow smoke tests. It
+  uses ad-hoc signing, skips notarization, skips shared appcast generation, and
+  does not require the Apple signing/notary/Sparkle secrets.
 - After a successful stable publish, an agent or maintainer must download that
   artifact and commit `appcast.xml` to `openclaw/openclaw` `main`.
 
 ## Required `mac-release` environment secrets
 
-- `OPENCLAW_PUBLIC_REPO_APP_ID`
-- `OPENCLAW_PUBLIC_REPO_APP_PRIVATE_KEY`
 - `MACOS_DEVELOPER_ID_P12_BASE64`
 - `MACOS_DEVELOPER_ID_P12_PASSWORD`
 - `APP_STORE_CONNECT_API_KEY_P8`
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
 - `SPARKLE_PRIVATE_KEY`
-
-## GitHub App contract
-
-Install a GitHub App on `openclaw/openclaw` with the minimum permissions this
-workflow needs:
-
-- `contents: write`
-- `metadata: read`
-
-The workflow mints an installation token at runtime and uses that token for:
-
-- checking out `openclaw/openclaw`
-- reading `appcast.xml` from `main`
-- checking that the GitHub release for the tag already exists
-- uploading signed macOS assets to the existing GitHub release
 
 ## Repo policy
 
