@@ -14,7 +14,7 @@ on:
         type: boolean
 
 concurrency:
-  group: openclaw-macos-publish-${{ inputs.tag }}
+  group: openclaw-macos-publish-${{ contains(inputs.tag, '-beta.') && inputs.tag || 'stable-feed' }}
   cancel-in-progress: false
 
 env:
@@ -58,23 +58,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Mint GitHub App token for the public repo
-        id: public_repo_token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.OPENCLAW_PUBLIC_REPO_APP_ID }}
-          private-key: ${{ secrets.OPENCLAW_PUBLIC_REPO_APP_PRIVATE_KEY }}
-          owner: openclaw
-          repositories: openclaw
-
-      - name: Checkout selected public source tag
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.OPENCLAW_REPOSITORY }}
-          ref: refs/tags/${{ inputs.tag }}
-          token: ${{ steps.public_repo_token.outputs.token }}
-          path: source
-          fetch-depth: 0
+      - name: Clone selected public source tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/openclaw/openclaw.git source
+          git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
 
       - name: Checkout submodules (retry)
         working-directory: source
@@ -124,11 +114,14 @@ jobs:
             ${{ runner.os }}-swiftpm-release-
 
       - name: Ensure matching public GitHub release exists
-        working-directory: source
         env:
-          GH_TOKEN: ${{ steps.public_repo_token.outputs.token }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${OPENCLAW_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            >/dev/null
 
       - name: Validate release tag and package metadata
         working-directory: source
@@ -274,25 +267,15 @@ jobs:
           SPARKLE_FEED_URL: ${{ env.SPARKLE_FEED_URL }}
         run: scripts/package-mac-dist.sh
 
-      - name: Checkout public main for stable appcast seed
-        if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.OPENCLAW_REPOSITORY }}
-          ref: main
-          token: ${{ steps.public_repo_token.outputs.token }}
-          path: openclaw-main
-          fetch-depth: 1
-
       - name: Seed appcast from public main
         if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
         run: |
           set -euo pipefail
-          APPCAST_SOURCE="openclaw-main/appcast.xml"
-          if [[ -f "$APPCAST_SOURCE" ]]; then
-            cp "$APPCAST_SOURCE" source/appcast.xml
+          if curl -fsSL "$SPARKLE_FEED_URL" -o source/appcast.xml; then
+            echo "Seeded appcast from $SPARKLE_FEED_URL."
           else
-            echo "No existing appcast at $APPCAST_SOURCE; generating a fresh feed."
+            rm -f source/appcast.xml
+            echo "No existing appcast at $SPARKLE_FEED_URL; generating a fresh feed."
           fi
 
       - name: Generate signed appcast artifact
@@ -302,6 +285,19 @@ jobs:
           SPARKLE_DOWNLOAD_URL_PREFIX: https://github.com/openclaw/openclaw/releases/download/${{ inputs.tag }}/
           SPARKLE_RELEASE_VERSION: ${{ steps.package_version.outputs.value }}
         run: scripts/make_appcast.sh "dist/OpenClaw-${{ steps.package_version.outputs.value }}.zip" "${{ env.SPARKLE_FEED_URL }}"
+
+      - name: Resolve packaged artifact name
+        id: packaged_artifacts
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+        run: |
+          set -euo pipefail
+          if [[ "$PREFLIGHT_ONLY" == "true" ]]; then
+            echo "value=macos-preflight-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=macos-release-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload stable appcast artifact
         if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
@@ -315,32 +311,44 @@ jobs:
         if: ${{ steps.release_channel.outputs.is_beta == 'true' }}
         run: echo "Beta release detected; skip shared production appcast artifact generation."
 
-      - name: Upload preflight macOS artifacts
-        if: ${{ inputs.preflight_only }}
+      - name: Upload packaged macOS artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: macos-preflight-${{ inputs.tag }}
+          name: ${{ steps.packaged_artifacts.outputs.value }}
           path: |
             source/dist/OpenClaw-${{ steps.package_version.outputs.value }}.zip
             source/dist/OpenClaw-${{ steps.package_version.outputs.value }}.dmg
             source/dist/OpenClaw-${{ steps.package_version.outputs.value }}.dSYM.zip
           if-no-files-found: error
 
-      - name: Upload macOS assets to public GitHub release
-        if: ${{ !inputs.preflight_only }}
-        working-directory: source
+      - name: Summarize manual follow-up
         env:
-          GH_TOKEN: ${{ steps.public_repo_token.outputs.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.package_version.outputs.value }}
+          ARTIFACT_NAME: ${{ steps.packaged_artifacts.outputs.value }}
+          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+          IS_BETA: ${{ steps.release_channel.outputs.is_beta }}
         run: |
           set -euo pipefail
-          gh release upload "$RELEASE_TAG" \
-            "dist/OpenClaw-$VERSION.zip" \
-            "dist/OpenClaw-$VERSION.dmg" \
-            "dist/OpenClaw-$VERSION.dSYM.zip" \
-            --clobber \
-            --repo "$OPENCLAW_REPOSITORY"
+          {
+            echo "## Private macOS workflow output"
+            echo
+            echo "- Packaged artifacts: \`${ARTIFACT_NAME}\`"
+            echo "- Version: \`${VERSION}\`"
+            echo
+            if [[ "$PREFLIGHT_ONLY" == "true" ]]; then
+              echo "This was a private preflight run. Inspect the packaged artifacts before any real publish run."
+            else
+              echo "This was a real private publish run. The workflow does not upload to the public GitHub release."
+              echo "An agent or maintainer must download \`${ARTIFACT_NAME}\` and upload the \`.zip\`, \`.dmg\`, and \`.dSYM.zip\` files to the existing release in \`${OPENCLAW_REPOSITORY}\`."
+            fi
+            echo
+            if [[ "$IS_BETA" != "true" ]]; then
+              echo "For stable releases, also download \`macos-appcast-${RELEASE_TAG}\` and commit \`appcast.xml\` back to \`main\` in \`${OPENCLAW_REPOSITORY}\`."
+            else
+              echo "Beta release detected; no shared production \`appcast.xml\` artifact is generated."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Clean up signing keychain
         if: always()
