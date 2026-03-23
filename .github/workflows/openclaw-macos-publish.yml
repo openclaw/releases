@@ -145,7 +145,10 @@ jobs:
       - name: Resolve package version
         id: package_version
         working-directory: source
-        run: echo "value=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Determine release channel
         id: release_channel
@@ -329,6 +332,23 @@ jobs:
             echo "value=macos-release-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve packaged file paths
+        id: packaged_files
+        working-directory: source
+        run: |
+          set -euo pipefail
+          ZIP_PATH="$(find dist -maxdepth 1 -type f -name 'OpenClaw-*.zip' ! -name '*.dSYM.zip' ! -name '*.notary.zip' -print | sort | tail -n 1)"
+          DMG_PATH="$(find dist -maxdepth 1 -type f -name 'OpenClaw-*.dmg' -print | sort | tail -n 1)"
+          DSYM_PATH="$(find dist -maxdepth 1 -type f -name 'OpenClaw-*.dSYM.zip' -print | sort | tail -n 1)"
+          if [[ -z "$ZIP_PATH" || -z "$DMG_PATH" || -z "$DSYM_PATH" ]]; then
+            echo "Missing packaged outputs in source/dist" >&2
+            ls -la dist >&2 || true
+            exit 1
+          fi
+          echo "zip=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+          echo "dmg=$DMG_PATH" >> "$GITHUB_OUTPUT"
+          echo "dsym=$DSYM_PATH" >> "$GITHUB_OUTPUT"
+
       - name: Upload stable appcast artifact
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
         uses: actions/upload-artifact@v7
@@ -350,9 +370,9 @@ jobs:
         with:
           name: ${{ steps.packaged_artifacts.outputs.value }}
           path: |
-            source/dist/OpenClaw-${{ steps.package_version.outputs.value }}.zip
-            source/dist/OpenClaw-${{ steps.package_version.outputs.value }}.dmg
-            source/dist/OpenClaw-${{ steps.package_version.outputs.value }}.dSYM.zip
+            source/${{ steps.packaged_files.outputs.zip }}
+            source/${{ steps.packaged_files.outputs.dmg }}
+            source/${{ steps.packaged_files.outputs.dsym }}
           if-no-files-found: error
 
       - name: Summarize manual follow-up
