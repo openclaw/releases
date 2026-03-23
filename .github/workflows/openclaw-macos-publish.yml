@@ -115,13 +115,9 @@ jobs:
 
       - name: Ensure matching public GitHub release exists
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          curl -fsSL \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${OPENCLAW_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-            >/dev/null
+        run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
 
       - name: Validate release tag and package metadata
         working-directory: source

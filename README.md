@@ -28,8 +28,9 @@ live in `openclaw/openclaw`.
   An agent or maintainer must download `macos-release-<tag>` and upload the
   `.zip`, `.dmg`, and `.dSYM.zip` files to the existing release in
   `openclaw/openclaw`.
-- No GitHub App secret is required for the workflow anymore. Public repo reads
-  happen anonymously, and the public release upload happens outside Actions.
+- No GitHub App secret is required for the workflow anymore. Public source
+  checkout and appcast seeding happen without extra credentials, and the public
+  release upload happens outside Actions.
 - After a successful stable publish, an agent or maintainer must download that
   artifact and commit `appcast.xml` to `openclaw/openclaw` `main`.
 
