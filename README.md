@@ -21,7 +21,7 @@ live in `openclaw/openclaw`.
 - The workflow checks out `openclaw/openclaw` at `refs/tags/<tag>` and uses the
   public repo's packaging scripts directly.
 - Every successful run uploads the packaged macOS artifacts to this workflow as
-  either `macos-preflight-<tag>` or `macos-release-<tag>`.
+  `macos-smoke-<tag>`, `macos-preflight-<tag>`, or `macos-release-<tag>`.
 - Stable releases upload a `macos-appcast-<tag>` artifact here, but the workflow
   never pushes `appcast.xml` back to `main`.
 - Real publish runs do not upload to the public GitHub release automatically.
@@ -31,6 +31,9 @@ live in `openclaw/openclaw`.
 - No GitHub App secret is required for the workflow anymore. Public source
   checkout and appcast seeding happen without extra credentials, and the public
   release upload happens outside Actions.
+- `smoke_test_only=true` is available for branch-safe workflow smoke tests. It
+  uses ad-hoc signing, skips notarization, skips shared appcast generation, and
+  does not require the Apple signing/notary/Sparkle secrets.
 - After a successful stable publish, an agent or maintainer must download that
   artifact and commit `appcast.xml` to `openclaw/openclaw` `main`.
 
