@@ -1,4 +1,7 @@
-2026-03-24
+---
+date: 2026-03-24
+title: Private macOS Release Security Status
+---
 
 # Private macOS Release Security Status
 
