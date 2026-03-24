@@ -24,13 +24,11 @@ live in `openclaw/openclaw`.
   `macos-smoke-<tag>`, `macos-preflight-<tag>`, or `macos-release-<tag>`.
 - Stable releases upload a `macos-appcast-<tag>` artifact here, but the workflow
   never pushes `appcast.xml` back to `main`.
-- Real publish runs do not upload to the public GitHub release automatically.
-  An agent or maintainer must download `macos-release-<tag>` and upload the
-  `.zip`, `.dmg`, and `.dSYM.zip` files to the existing release in
-  `openclaw/openclaw`.
-- No GitHub App secret is required for the workflow anymore. Public source
-  checkout and appcast seeding happen without extra credentials, and the public
-  release upload happens outside Actions.
+- Real publish runs upload the `.zip`, `.dmg`, and `.dSYM.zip` files to the
+  existing release in `openclaw/openclaw` automatically.
+- No GitHub App secret is required. Public source checkout and appcast seeding
+  happen without extra credentials, and the cross-repo release upload uses
+  `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN`.
 - `smoke_test_only=true` is available for branch-safe workflow smoke tests. It
   uses ad-hoc signing, skips notarization, skips shared appcast generation, and
   does not require the Apple signing/notary/Sparkle secrets.
@@ -45,6 +43,8 @@ live in `openclaw/openclaw`.
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_ISSUER_ID`
 - `SPARKLE_PRIVATE_KEY`
+- `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN` (`contents:write` on `openclaw/openclaw`
+  is sufficient)
 
 ## Repo policy
 

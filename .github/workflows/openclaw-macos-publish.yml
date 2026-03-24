@@ -375,7 +375,47 @@ jobs:
             source/${{ steps.packaged_files.outputs.dsym }}
           if-no-files-found: error
 
-      - name: Summarize manual follow-up
+      - name: Upload packaged macOS assets to public GitHub release
+        if: ${{ !inputs.preflight_only && !inputs.smoke_test_only }}
+        env:
+          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          ZIP_PATH: source/${{ steps.packaged_files.outputs.zip }}
+          DMG_PATH: source/${{ steps.packaged_files.outputs.dmg }}
+          DSYM_PATH: source/${{ steps.packaged_files.outputs.dsym }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret." >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" \
+            "$ZIP_PATH" \
+            "$DMG_PATH" \
+            "$DSYM_PATH" \
+            --clobber \
+            --repo "$OPENCLAW_REPOSITORY"
+
+      - name: Verify public GitHub release assets
+        if: ${{ !inputs.preflight_only && !inputs.smoke_test_only }}
+        env:
+          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          ZIP_PATH: source/${{ steps.packaged_files.outputs.zip }}
+          DMG_PATH: source/${{ steps.packaged_files.outputs.dmg }}
+          DSYM_PATH: source/${{ steps.packaged_files.outputs.dsym }}
+        run: |
+          set -euo pipefail
+          ASSET_NAMES="$(gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" --json assets --jq '.assets[].name')"
+          for asset_path in "$ZIP_PATH" "$DMG_PATH" "$DSYM_PATH"; do
+            asset_name="$(basename "$asset_path")"
+            if ! printf '%s\n' "$ASSET_NAMES" | grep -Fqx "$asset_name"; then
+              echo "Expected release asset not found after upload: $asset_name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Summarize follow-up
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.package_version.outputs.value }}
@@ -396,8 +436,7 @@ jobs:
             elif [[ "$PREFLIGHT_ONLY" == "true" ]]; then
               echo "This was a private preflight run. Inspect the packaged artifacts before any real publish run."
             else
-              echo "This was a real private publish run. The workflow does not upload to the public GitHub release."
-              echo "An agent or maintainer must download \`${ARTIFACT_NAME}\` and upload the \`.zip\`, \`.dmg\`, and \`.dSYM.zip\` files to the existing release in \`${OPENCLAW_REPOSITORY}\`."
+              echo "This was a real private publish run. The workflow uploaded the \`.zip\`, \`.dmg\`, and \`.dSYM.zip\` files to the existing release in \`${OPENCLAW_REPOSITORY}\`."
             fi
             echo
             if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
