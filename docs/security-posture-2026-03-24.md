@@ -1,6 +1,6 @@
-# Private macOS Release Security Status
+2026-03-24
 
-_Last reviewed: 2026-03-24_
+# Private macOS Release Security Status
 
 This report describes the current security posture of `openclaw/releases-private` after the macOS release workflow migration from `openclaw/openclaw`.
 
