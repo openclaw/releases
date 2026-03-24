@@ -7,11 +7,11 @@ title: Private macOS Release Security Status
 
 ## TL;DR
 
-- `openclaw-release-managers` own the private repo on `main` through repo-wide CODEOWNERS and the active `main` ruleset.
-- The `mac-release` environment is limited to the `main` branch and `can_admins_bypass=false`.
-- `Maintainer` intentionally retains `push` access by operator decision, so maintainers may still trigger a premature private release run.
-- The accepted worst case is a premature release, not secret extraction.
-- The trust boundary also depends on release-tag control in `openclaw/openclaw`, because the private workflow builds from a public tag.
+- Release managers control changes to the private release repo on `main`.
+- The secrets-bearing `mac-release` environment can only be used from `main`.
+- Maintainers still keep write access to the private repo on purpose, so they may be able to start a release early.
+- That early-release risk is accepted.
+- The model also depends on release tags in `openclaw/openclaw` staying under release-manager control, because the private workflow builds from those tags.
 
 This report describes the current security posture of `openclaw/releases-private` after the macOS release workflow migration from `openclaw/openclaw`.
 
