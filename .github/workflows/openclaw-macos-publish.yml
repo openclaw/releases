@@ -130,18 +130,6 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
 
-      - name: Validate release tag and package metadata
-        working-directory: source
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          RELEASE_MAIN_REF: origin/main
-        run: |
-          set -euo pipefail
-          RELEASE_SHA=$(git rev-parse HEAD)
-          export RELEASE_SHA RELEASE_TAG RELEASE_MAIN_REF
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          pnpm release:openclaw:npm:check
-
       - name: Resolve package version
         id: package_version
         working-directory: source
@@ -173,6 +161,18 @@ jobs:
       - name: Build Control UI
         working-directory: source
         run: node scripts/ui.js build
+
+      - name: Validate release tag and package metadata
+        working-directory: source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_MAIN_REF: origin/main
+        run: |
+          set -euo pipefail
+          RELEASE_SHA=$(git rev-parse HEAD)
+          export RELEASE_SHA RELEASE_TAG RELEASE_MAIN_REF
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          pnpm release:openclaw:npm:check
 
       - name: Verify release contents
         working-directory: source
