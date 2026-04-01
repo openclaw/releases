@@ -16,8 +16,13 @@ live in `openclaw/openclaw`.
 
 ## Workflow
 
+- Separate private mac validation workflow:
+  `.github/workflows/openclaw-macos-validate.yml`
 - Real mac publish workflow:
   `.github/workflows/openclaw-macos-publish.yml`
+- The validation workflow is the required `swift test` lane for release
+  readiness, but it does not build, sign, notarize, package, or upload release
+  artifacts.
 - The workflow checks out `openclaw/openclaw` at `refs/tags/<tag>` and uses the
   public repo's packaging scripts directly.
 - Every successful run uploads the packaged macOS artifacts to this workflow as
@@ -27,6 +32,9 @@ live in `openclaw/openclaw`.
 - Real publish runs require `preflight_run_id=<successful private preflight run>`
   and promote those already prepared artifacts instead of rebuilding and
   renotarizing again.
+- Real publish now promotes and uploads those prepared artifacts from a cheap
+  Ubuntu job; the mac runner is only used for private preflight and smoke-test
+  runs.
 - Real publish runs upload the `.zip`, `.dmg`, and `.dSYM.zip` files to the
   existing release in `openclaw/openclaw` automatically.
 - No GitHub App secret is required. Public source checkout and appcast seeding
@@ -37,6 +45,8 @@ live in `openclaw/openclaw`.
   does not require the Apple signing/notary/Sparkle secrets.
 - `preflight_only=true` remains the path that does the real build, signing,
   notarization, packaging, and stable appcast generation.
+- `preflight_only=false` is now promotion-only and must reuse a successful
+  private preflight run via `preflight_run_id`.
 - After a successful stable publish, an agent or maintainer must download that
   artifact and commit `appcast.xml` to `openclaw/openclaw` `main`.
 

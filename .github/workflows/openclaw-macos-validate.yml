@@ -1,0 +1,102 @@
+name: OpenClaw macOS Validate
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing OpenClaw release tag to validate on macOS (for example v2026.3.22 or v2026.3.22-beta.1)
+        required: true
+        type: string
+
+concurrency:
+  group: openclaw-macos-validate-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  OPENCLAW_REPOSITORY: openclaw/openclaw
+
+jobs:
+  macos_validate:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Validate tag input format
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*((-beta\.[1-9][0-9]*)|(-[1-9][0-9]*))?$ ]]; then
+            echo "Invalid release tag format: ${RELEASE_TAG}"
+            exit 1
+          fi
+
+      - name: Ensure matching public GitHub release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
+
+      - name: Clone selected public source tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/openclaw/openclaw.git source
+          git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
+
+      - name: Checkout submodules (retry)
+        working-directory: source
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          for attempt in 1 2 3 4 5; do
+            if git -c protocol.version=2 submodule update --init --force --depth=1 --recursive; then
+              exit 0
+            fi
+            echo "Submodule update failed (attempt $attempt/5). Retrying..."
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      - name: Select Xcode 26.1
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.1.app
+          xcodebuild -version
+          swift --version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-swiftpm-release-${{ hashFiles('source/apps/macos/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-swiftpm-release-
+
+      - name: Swift test
+        working-directory: source
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if swift test --package-path apps/macos --parallel; then
+              exit 0
+            fi
+            echo "swift test failed (attempt $attempt/3). Retrying..."
+            sleep $((attempt * 20))
+          done
+          exit 1
+
+      - name: Summarize validation
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          {
+            echo "## Private macOS validation"
+            echo
+            echo "- Tag: \`${RELEASE_TAG}\`"
+            echo "- Validation: \`swift test --package-path apps/macos --parallel\`"
+            echo
+            echo "This lane is release-blocking validation, but it does not build, sign, notarize, package, or upload release artifacts."
+          } >> "$GITHUB_STEP_SUMMARY"
