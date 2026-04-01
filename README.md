@@ -24,6 +24,9 @@ live in `openclaw/openclaw`.
   `macos-smoke-<tag>`, `macos-preflight-<tag>`, or `macos-release-<tag>`.
 - Stable releases upload a `macos-appcast-<tag>` artifact here, but the workflow
   never pushes `appcast.xml` back to `main`.
+- Real publish runs require `preflight_run_id=<successful private preflight run>`
+  and promote those already prepared artifacts instead of rebuilding and
+  renotarizing again.
 - Real publish runs upload the `.zip`, `.dmg`, and `.dSYM.zip` files to the
   existing release in `openclaw/openclaw` automatically.
 - No GitHub App secret is required. Public source checkout and appcast seeding
@@ -32,6 +35,8 @@ live in `openclaw/openclaw`.
 - `smoke_test_only=true` is available for branch-safe workflow smoke tests. It
   uses ad-hoc signing, skips notarization, skips shared appcast generation, and
   does not require the Apple signing/notary/Sparkle secrets.
+- `preflight_only=true` remains the path that does the real build, signing,
+  notarization, packaging, and stable appcast generation.
 - After a successful stable publish, an agent or maintainer must download that
   artifact and commit `appcast.xml` to `openclaw/openclaw` `main`.
 

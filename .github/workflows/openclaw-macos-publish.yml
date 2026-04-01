@@ -12,15 +12,15 @@ on:
         required: true
         default: false
         type: boolean
-      preflight_run_id:
-        description: Existing private preflight workflow run id to promote without rebuilding
-        required: false
-        type: string
       smoke_test_only:
         description: Use ad-hoc packaging only; skip Apple signing, notarization, and shared appcast generation for workflow smoke tests
         required: true
         default: false
         type: boolean
+      preflight_run_id:
+        description: Existing successful private mac preflight workflow run id to promote without rebuilding or renotarizing
+        required: false
+        type: string
 
 concurrency:
   group: openclaw-macos-publish-${{ contains(inputs.tag, '-beta.') && inputs.tag || 'stable-feed' }}
@@ -68,11 +68,20 @@ jobs:
           echo "smoke_test_only=true is only valid with preflight_only=true."
           exit 1
 
-      - name: Forbid preflight artifact promotion during preflight or smoke-test runs
-        if: ${{ inputs.preflight_run_id != '' && (inputs.preflight_only || inputs.smoke_test_only) }}
+      - name: Forbid preflight artifact promotion on validation-only runs
+        if: ${{ inputs.preflight_only && inputs.preflight_run_id != '' }}
         run: |
-          echo "preflight_run_id can only be used for real publish runs."
+          echo "preflight_run_id is only valid for real publish runs."
           exit 1
+
+      - name: Require preflight artifact promotion on real publish
+        if: ${{ !inputs.preflight_only }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ inputs.preflight_run_id }}" ]]; then
+            echo "Real publish requires preflight_run_id from a successful private mac preflight run." >&2
+            exit 1
+          fi
 
       - name: Resolve preflight artifact reuse mode
         id: reuse_preflight
@@ -402,9 +411,9 @@ jobs:
           else
             SEARCH_DIR="source/dist"
           fi
-          ZIP_PATH="$(find "$SEARCH_DIR" -maxdepth 1 -type f -name 'OpenClaw-*.zip' ! -name '*.dSYM.zip' ! -name '*.notary.zip' -print | sort | tail -n 1)"
-          DMG_PATH="$(find "$SEARCH_DIR" -maxdepth 1 -type f -name 'OpenClaw-*.dmg' -print | sort | tail -n 1)"
-          DSYM_PATH="$(find "$SEARCH_DIR" -maxdepth 1 -type f -name 'OpenClaw-*.dSYM.zip' -print | sort | tail -n 1)"
+          ZIP_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.zip' ! -name '*.dSYM.zip' ! -name '*.notary.zip' -print | sort | tail -n 1)"
+          DMG_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dmg' -print | sort | tail -n 1)"
+          DSYM_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dSYM.zip' -print | sort | tail -n 1)"
           if [[ -z "$ZIP_PATH" || -z "$DMG_PATH" || -z "$DSYM_PATH" ]]; then
             echo "Missing packaged outputs in $SEARCH_DIR" >&2
             ls -la "$SEARCH_DIR" >&2 || true
@@ -420,7 +429,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ needs.prepare.outputs.reuse_preflight }}" == "true" ]]; then
-            APPCAST_PATH="$(find promoted-appcast -maxdepth 1 -type f -name 'appcast.xml' -print | sort | tail -n 1)"
+            APPCAST_PATH="$(find promoted-appcast -type f -name 'appcast.xml' -print | sort | tail -n 1)"
           else
             APPCAST_PATH="source/appcast.xml"
           fi
@@ -429,6 +438,19 @@ jobs:
             exit 1
           fi
           echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve packaged version
+        id: packaged_version
+        run: |
+          set -euo pipefail
+          VERSION="$(basename "${{ steps.packaged_files.outputs.zip }}")"
+          VERSION="${VERSION#OpenClaw-}"
+          VERSION="${VERSION%.zip}"
+          if [[ -z "$VERSION" ]]; then
+            echo "Unable to resolve packaged version from zip filename." >&2
+            exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Upload stable appcast artifact
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
@@ -499,7 +521,7 @@ jobs:
       - name: Summarize follow-up
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-          VERSION: ${{ steps.package_version.outputs.value }}
+          VERSION: ${{ steps.packaged_version.outputs.value }}
           ARTIFACT_NAME: ${{ steps.packaged_artifacts.outputs.value }}
           PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
           PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
