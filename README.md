@@ -16,14 +16,31 @@ live in `openclaw/openclaw`.
 
 ## Workflow
 
+- Separate private mac validation workflow:
+  `.github/workflows/openclaw-macos-validate.yml`
 - Real mac publish workflow:
   `.github/workflows/openclaw-macos-publish.yml`
+- The validation workflow is the required `swift test` lane for release
+  readiness, and each successful run uploads a `macos-validate-<tag>` proof
+  artifact. It does not build, sign, notarize, package, or upload release
+  assets.
 - The workflow checks out `openclaw/openclaw` at `refs/tags/<tag>` and uses the
   public repo's packaging scripts directly.
 - Every successful run uploads the packaged macOS artifacts to this workflow as
   `macos-smoke-<tag>`, `macos-preflight-<tag>`, or `macos-release-<tag>`.
 - Stable releases upload a `macos-appcast-<tag>` artifact here, but the workflow
   never pushes `appcast.xml` back to `main`.
+- Real publish runs require:
+  - `preflight_run_id=<successful private mac preflight run>`
+  - `validate_run_id=<successful private mac validation run>`
+- Real publish verifies both referenced runs came from this repo's `main`
+  workflow definitions and that their saved release provenance matches the
+  current public tag.
+- Real publish promotes those already prepared artifacts instead of rebuilding
+  and renotarizing again.
+- Real publish now promotes and uploads those prepared artifacts from a cheap
+  Ubuntu job; the mac runner is only used for private preflight and smoke-test
+  runs.
 - Real publish runs upload the `.zip`, `.dmg`, and `.dSYM.zip` files to the
   existing release in `openclaw/openclaw` automatically.
 - No GitHub App secret is required. Public source checkout and appcast seeding
@@ -32,6 +49,14 @@ live in `openclaw/openclaw`.
 - `smoke_test_only=true` is available for branch-safe workflow smoke tests. It
   uses ad-hoc signing, skips notarization, skips shared appcast generation, and
   does not require the Apple signing/notary/Sparkle secrets.
+- `preflight_only=true` remains the path that does the real build, signing,
+  notarization, packaging, and stable appcast generation.
+- Validation-only and preflight-only runs may still be dispatched from branches
+  while iterating on workflow changes, but their run ids are not valid for real
+  publish.
+- `preflight_only=false` is now promotion-only and must reuse both:
+  - a successful private preflight run via `preflight_run_id`
+  - a successful private validation run via `validate_run_id`
 - After a successful stable publish, an agent or maintainer must download that
   artifact and commit `appcast.xml` to `openclaw/openclaw` `main`.
 

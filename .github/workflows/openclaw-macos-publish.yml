@@ -12,15 +12,19 @@ on:
         required: true
         default: false
         type: boolean
-      preflight_run_id:
-        description: Existing private preflight workflow run id to promote without rebuilding
-        required: false
-        type: string
       smoke_test_only:
         description: Use ad-hoc packaging only; skip Apple signing, notarization, and shared appcast generation for workflow smoke tests
         required: true
         default: false
         type: boolean
+      preflight_run_id:
+        description: Existing successful private mac preflight workflow run id to promote without rebuilding or renotarizing
+        required: false
+        type: string
+      validate_run_id:
+        description: Existing successful private mac validate workflow run id to prove the required swift test gate passed for this tag
+        required: false
+        type: string
 
 concurrency:
   group: openclaw-macos-publish-${{ contains(inputs.tag, '-beta.') && inputs.tag || 'stable-feed' }}
@@ -68,11 +72,35 @@ jobs:
           echo "smoke_test_only=true is only valid with preflight_only=true."
           exit 1
 
-      - name: Forbid preflight artifact promotion during preflight or smoke-test runs
-        if: ${{ inputs.preflight_run_id != '' && (inputs.preflight_only || inputs.smoke_test_only) }}
+      - name: Forbid preflight artifact promotion on validation-only runs
+        if: ${{ inputs.preflight_only && inputs.preflight_run_id != '' }}
         run: |
-          echo "preflight_run_id can only be used for real publish runs."
+          echo "preflight_run_id is only valid for real publish runs."
           exit 1
+
+      - name: Forbid validation run reuse on validation-only runs
+        if: ${{ inputs.preflight_only && inputs.validate_run_id != '' }}
+        run: |
+          echo "validate_run_id is only valid for real publish runs."
+          exit 1
+
+      - name: Require preflight artifact promotion on real publish
+        if: ${{ !inputs.preflight_only }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ inputs.preflight_run_id }}" ]]; then
+            echo "Real publish requires preflight_run_id from a successful private mac preflight run." >&2
+            exit 1
+          fi
+
+      - name: Require private mac validation run on real publish
+        if: ${{ !inputs.preflight_only }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ inputs.validate_run_id }}" ]]; then
+            echo "Real publish requires validate_run_id from a successful private mac validation run." >&2
+            exit 1
+          fi
 
       - name: Resolve preflight artifact reuse mode
         id: reuse_preflight
@@ -86,8 +114,9 @@ jobs:
             echo "value=false" >> "$GITHUB_OUTPUT"
           fi
 
-  build_sign_and_publish:
+  build_sign_and_package:
     needs: prepare
+    if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
     runs-on: macos-latest-xlarge
     environment: mac-release
     permissions:
@@ -95,7 +124,6 @@ jobs:
       contents: read
     steps:
       - name: Clone selected public source tag
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
@@ -104,7 +132,6 @@ jobs:
           git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
 
       - name: Checkout submodules (retry)
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         working-directory: source
         run: |
           set -euo pipefail
@@ -119,14 +146,12 @@ jobs:
           exit 1
 
       - name: Setup pnpm
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
           run_install: false
 
       - name: Setup Node.js
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -134,21 +159,18 @@ jobs:
           cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install dependencies
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         working-directory: source
         env:
           CI: "true"
         run: pnpm install --frozen-lockfile
 
       - name: Select Xcode 26.1
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         run: |
           sudo xcode-select -s /Applications/Xcode_26.1.app
           xcodebuild -version
           swift --version
 
       - name: Cache SwiftPM
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         uses: actions/cache@v5
         with:
           path: ~/Library/Caches/org.swift.swiftpm
@@ -163,7 +185,6 @@ jobs:
         run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
 
       - name: Resolve package version
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         id: package_version
         working-directory: source
         run: |
@@ -184,22 +205,18 @@ jobs:
           fi
 
       - name: Check
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         working-directory: source
         run: pnpm check
 
       - name: Build
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         working-directory: source
         run: pnpm build
 
       - name: Build Control UI
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         working-directory: source
         run: node scripts/ui.js build
 
       - name: Validate release tag and package metadata
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         working-directory: source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -212,28 +229,27 @@ jobs:
           pnpm release:openclaw:npm:check
 
       - name: Verify release contents
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm release:check
 
-      - name: Swift test
-        if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
-        working-directory: source
+      - name: Capture release provenance
+        id: release_provenance
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
-            if swift test --package-path apps/macos --parallel; then
-              exit 0
-            fi
-            echo "swift test failed (attempt $attempt/3). Retrying..."
-            sleep $((attempt * 20))
-          done
-          exit 1
+          RELEASE_SHA="$(git -C source rev-parse HEAD)"
+          ARTIFACT_DIR="$RUNNER_TEMP/openclaw-macos-preflight"
+          rm -rf "$ARTIFACT_DIR"
+          mkdir -p "$ARTIFACT_DIR"
+          printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag.txt"
+          printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha.txt"
+          echo "dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Package macOS smoke-test artifacts
-        if: ${{ inputs.smoke_test_only && needs.prepare.outputs.reuse_preflight != 'true' }}
+        if: ${{ inputs.smoke_test_only }}
         working-directory: source
         env:
           APP_VERSION: ${{ steps.package_version.outputs.value }}
@@ -249,7 +265,7 @@ jobs:
         run: scripts/package-mac-dist.sh
 
       - name: Import Developer ID certificate
-        if: ${{ !inputs.smoke_test_only && needs.prepare.outputs.reuse_preflight != 'true' }}
+        if: ${{ !inputs.smoke_test_only }}
         env:
           MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
           MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
@@ -284,7 +300,7 @@ jobs:
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Resolve signing identity
-        if: ${{ !inputs.smoke_test_only && needs.prepare.outputs.reuse_preflight != 'true' }}
+        if: ${{ !inputs.smoke_test_only }}
         run: |
           set -euo pipefail
           SIGN_IDENTITY="$(security find-identity -p codesigning -v "$KEYCHAIN_PATH" 2>/dev/null | awk -F'\"' '/Developer ID Application/ { print $2; exit }')"
@@ -295,7 +311,7 @@ jobs:
           echo "SIGN_IDENTITY=$SIGN_IDENTITY" >> "$GITHUB_ENV"
 
       - name: Write notary and Sparkle key files
-        if: ${{ !inputs.smoke_test_only && needs.prepare.outputs.reuse_preflight != 'true' }}
+        if: ${{ !inputs.smoke_test_only }}
         env:
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -323,7 +339,7 @@ jobs:
           echo "SPARKLE_PRIVATE_KEY_FILE=$SPARKLE_PRIVATE_KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Build, sign, notarize, and package macOS release
-        if: ${{ !inputs.smoke_test_only && needs.prepare.outputs.reuse_preflight != 'true' }}
+        if: ${{ !inputs.smoke_test_only }}
         working-directory: source
         env:
           APP_VERSION: ${{ steps.package_version.outputs.value }}
@@ -337,7 +353,7 @@ jobs:
         run: scripts/package-mac-dist.sh
 
       - name: Seed appcast from public main
-        if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' && needs.prepare.outputs.reuse_preflight != 'true' }}
+        if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
         run: |
           set -euo pipefail
           if curl -fsSL "$SPARKLE_FEED_URL" -o source/appcast.xml; then
@@ -348,63 +364,34 @@ jobs:
           fi
 
       - name: Generate signed appcast artifact
-        if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' && needs.prepare.outputs.reuse_preflight != 'true' }}
+        if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
         working-directory: source
         env:
           SPARKLE_DOWNLOAD_URL_PREFIX: https://github.com/openclaw/openclaw/releases/download/${{ inputs.tag }}/
           SPARKLE_RELEASE_VERSION: ${{ steps.package_version.outputs.value }}
         run: scripts/make_appcast.sh "dist/OpenClaw-${{ steps.package_version.outputs.value }}.zip" "${{ env.SPARKLE_FEED_URL }}"
 
-      - name: Download prepared macOS artifacts
-        if: ${{ needs.prepare.outputs.reuse_preflight == 'true' }}
-        uses: actions/download-artifact@v8
-        with:
-          name: macos-preflight-${{ inputs.tag }}
-          path: promoted-artifacts
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.preflight_run_id }}
-          github-token: ${{ github.token }}
-
-      - name: Download prepared stable appcast artifact
-        if: ${{ needs.prepare.outputs.reuse_preflight == 'true' && steps.release_channel.outputs.is_beta != 'true' }}
-        uses: actions/download-artifact@v8
-        with:
-          name: macos-appcast-${{ inputs.tag }}
-          path: promoted-appcast
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.preflight_run_id }}
-          github-token: ${{ github.token }}
-
       - name: Resolve packaged artifact name
         id: packaged_artifacts
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
           SMOKE_TEST_ONLY: ${{ inputs.smoke_test_only }}
         run: |
           set -euo pipefail
           if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
             echo "value=macos-smoke-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ needs.prepare.outputs.reuse_preflight }}" == "true" ]]; then
-            echo "value=macos-release-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
-          elif [[ "$PREFLIGHT_ONLY" == "true" ]]; then
-            echo "value=macos-preflight-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=macos-release-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+            echo "value=macos-preflight-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve packaged file paths
         id: packaged_files
         run: |
           set -euo pipefail
-          if [[ "${{ needs.prepare.outputs.reuse_preflight }}" == "true" ]]; then
-            SEARCH_DIR="promoted-artifacts"
-          else
-            SEARCH_DIR="source/dist"
-          fi
-          ZIP_PATH="$(find "$SEARCH_DIR" -maxdepth 1 -type f -name 'OpenClaw-*.zip' ! -name '*.dSYM.zip' ! -name '*.notary.zip' -print | sort | tail -n 1)"
-          DMG_PATH="$(find "$SEARCH_DIR" -maxdepth 1 -type f -name 'OpenClaw-*.dmg' -print | sort | tail -n 1)"
-          DSYM_PATH="$(find "$SEARCH_DIR" -maxdepth 1 -type f -name 'OpenClaw-*.dSYM.zip' -print | sort | tail -n 1)"
+          SEARCH_DIR="source/dist"
+          ZIP_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.zip' ! -name '*.dSYM.zip' ! -name '*.notary.zip' -print | sort | tail -n 1)"
+          DMG_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dmg' -print | sort | tail -n 1)"
+          DSYM_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dSYM.zip' -print | sort | tail -n 1)"
           if [[ -z "$ZIP_PATH" || -z "$DMG_PATH" || -z "$DSYM_PATH" ]]; then
             echo "Missing packaged outputs in $SEARCH_DIR" >&2
             ls -la "$SEARCH_DIR" >&2 || true
@@ -419,16 +406,25 @@ jobs:
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
         run: |
           set -euo pipefail
-          if [[ "${{ needs.prepare.outputs.reuse_preflight }}" == "true" ]]; then
-            APPCAST_PATH="$(find promoted-appcast -maxdepth 1 -type f -name 'appcast.xml' -print | sort | tail -n 1)"
-          else
-            APPCAST_PATH="source/appcast.xml"
-          fi
+          APPCAST_PATH="source/appcast.xml"
           if [[ -z "$APPCAST_PATH" || ! -f "$APPCAST_PATH" ]]; then
             echo "Stable appcast artifact not found." >&2
             exit 1
           fi
           echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve packaged version
+        id: packaged_version
+        run: |
+          set -euo pipefail
+          VERSION="$(basename "${{ steps.packaged_files.outputs.zip }}")"
+          VERSION="${VERSION#OpenClaw-}"
+          VERSION="${VERSION%.zip}"
+          if [[ -z "$VERSION" ]]; then
+            echo "Unable to resolve packaged version from zip filename." >&2
+            exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Upload stable appcast artifact
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
@@ -454,10 +450,261 @@ jobs:
             ${{ steps.packaged_files.outputs.zip }}
             ${{ steps.packaged_files.outputs.dmg }}
             ${{ steps.packaged_files.outputs.dsym }}
+            ${{ steps.release_provenance.outputs.dir }}/release-tag.txt
+            ${{ steps.release_provenance.outputs.dir }}/release-sha.txt
+          if-no-files-found: error
+
+      - name: Summarize follow-up
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          VERSION: ${{ steps.packaged_version.outputs.value }}
+          ARTIFACT_NAME: ${{ steps.packaged_artifacts.outputs.value }}
+          SMOKE_TEST_ONLY: ${{ inputs.smoke_test_only }}
+          IS_BETA: ${{ steps.release_channel.outputs.is_beta }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Private macOS workflow output"
+            echo
+            echo "- Packaged artifacts: \`${ARTIFACT_NAME}\`"
+            echo "- Version: \`${VERSION}\`"
+            echo
+            if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
+              echo "This was a smoke-test run. Artifacts are ad-hoc signed, not notarized, and not suitable for release readiness."
+            else
+              echo "This was a private preflight run. Inspect the packaged artifacts before any real publish run."
+            fi
+            echo
+            if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
+              echo "Smoke-test mode skips shared production \`appcast.xml\` generation."
+            elif [[ "$IS_BETA" != "true" ]]; then
+              echo "For stable releases, also download \`macos-appcast-${RELEASE_TAG}\` and commit \`appcast.xml\` back to \`main\` in \`${OPENCLAW_REPOSITORY}\`."
+            else
+              echo "Beta release detected; no shared production \`appcast.xml\` artifact is generated."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up signing keychain
+        if: always()
+        run: |
+          if [[ -n "${KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
+          fi
+
+  promote_release_artifacts:
+    needs: prepare
+    if: ${{ !inputs.preflight_only && !inputs.smoke_test_only }}
+    runs-on: ubuntu-latest
+    environment: mac-release
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Ensure matching public GitHub release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
+
+      - name: Determine release channel
+        id: release_channel
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" == *-beta.* ]]; then
+            echo "is_beta=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_beta=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify preflight run metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
+        run: |
+          set -euo pipefail
+          RUN_JSON="$(gh run view "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --json workflowName,headBranch,event,conclusion,url)"
+          printf '%s' "$RUN_JSON" | node -e 'const fs = require("node:fs"); const run = JSON.parse(fs.readFileSync(0, "utf8")); const checks = [["workflowName", "OpenClaw macOS Publish"], ["headBranch", "main"], ["event", "workflow_dispatch"], ["conclusion", "success"]]; for (const [key, expected] of checks) { if (run[key] !== expected) { console.error(`Referenced mac preflight run ${process.env.PREFLIGHT_RUN_ID} must have ${key}=${expected}, got ${run[key] ?? "<missing>"}.`); process.exit(1); } } console.log(`Using mac preflight run ${process.env.PREFLIGHT_RUN_ID}: ${run.url}`);'
+
+      - name: Verify validate run metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATE_RUN_ID: ${{ inputs.validate_run_id }}
+        run: |
+          set -euo pipefail
+          RUN_JSON="$(gh run view "$VALIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json workflowName,headBranch,event,conclusion,url)"
+          printf '%s' "$RUN_JSON" | node -e 'const fs = require("node:fs"); const run = JSON.parse(fs.readFileSync(0, "utf8")); const checks = [["workflowName", "OpenClaw macOS Validate"], ["headBranch", "main"], ["event", "workflow_dispatch"], ["conclusion", "success"]]; for (const [key, expected] of checks) { if (run[key] !== expected) { console.error(`Referenced mac validation run ${process.env.VALIDATE_RUN_ID} must have ${key}=${expected}, got ${run[key] ?? "<missing>"}.`); process.exit(1); } } console.log(`Using mac validation run ${process.env.VALIDATE_RUN_ID}: ${run.url}`);'
+
+      - name: Resolve expected public release commit
+        id: expected_release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          EXPECTED_RELEASE_SHA=""
+          while IFS=$'\t' read -r oid ref; do
+            if [[ "$ref" == "refs/tags/${RELEASE_TAG}^{}" ]]; then
+              EXPECTED_RELEASE_SHA="$oid"
+              break
+            fi
+            if [[ "$ref" == "refs/tags/${RELEASE_TAG}" ]]; then
+              EXPECTED_RELEASE_SHA="$oid"
+            fi
+          done < <(git ls-remote https://github.com/openclaw/openclaw.git "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")
+          if [[ -z "$EXPECTED_RELEASE_SHA" ]]; then
+            echo "Unable to resolve public tag commit for ${RELEASE_TAG}." >&2
+            exit 1
+          fi
+          echo "sha=$EXPECTED_RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Download prepared macOS artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-preflight-${{ inputs.tag }}
+          path: promoted-artifacts
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.preflight_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify prepared macOS artifact provenance
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_RELEASE_SHA: ${{ steps.expected_release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          TAG_FILE="$(find promoted-artifacts -type f -name 'release-tag.txt' -print | sort | tail -n 1)"
+          SHA_FILE="$(find promoted-artifacts -type f -name 'release-sha.txt' -print | sort | tail -n 1)"
+          if [[ -z "$TAG_FILE" || -z "$SHA_FILE" || ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
+            echo "Prepared macOS preflight metadata is missing." >&2
+            ls -la promoted-artifacts >&2 || true
+            exit 1
+          fi
+          ARTIFACT_RELEASE_TAG="$(tr -d '\r\n' < "$TAG_FILE")"
+          ARTIFACT_RELEASE_SHA="$(tr -d '\r\n' < "$SHA_FILE")"
+          if [[ "$ARTIFACT_RELEASE_TAG" != "$RELEASE_TAG" ]]; then
+            echo "Prepared macOS preflight tag mismatch: expected $RELEASE_TAG, got $ARTIFACT_RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ "$ARTIFACT_RELEASE_SHA" != "$EXPECTED_RELEASE_SHA" ]]; then
+            echo "Prepared macOS preflight SHA mismatch: expected $EXPECTED_RELEASE_SHA, got $ARTIFACT_RELEASE_SHA" >&2
+            exit 1
+          fi
+
+      - name: Download prepared stable appcast artifact
+        if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-appcast-${{ inputs.tag }}
+          path: promoted-appcast
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.preflight_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download validation proof artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-validate-${{ inputs.tag }}
+          path: promoted-validation
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.validate_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify validation artifact provenance
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_RELEASE_SHA: ${{ steps.expected_release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          TAG_FILE="$(find promoted-validation -type f -name 'release-tag.txt' -print | sort | tail -n 1)"
+          SHA_FILE="$(find promoted-validation -type f -name 'release-sha.txt' -print | sort | tail -n 1)"
+          if [[ -z "$TAG_FILE" || -z "$SHA_FILE" || ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
+            echo "Validation proof metadata is missing." >&2
+            ls -la promoted-validation >&2 || true
+            exit 1
+          fi
+          VALIDATION_RELEASE_TAG="$(tr -d '\r\n' < "$TAG_FILE")"
+          VALIDATION_RELEASE_SHA="$(tr -d '\r\n' < "$SHA_FILE")"
+          if [[ "$VALIDATION_RELEASE_TAG" != "$RELEASE_TAG" ]]; then
+            echo "Validation proof tag mismatch: expected $RELEASE_TAG, got $VALIDATION_RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ "$VALIDATION_RELEASE_SHA" != "$EXPECTED_RELEASE_SHA" ]]; then
+            echo "Validation proof SHA mismatch: expected $EXPECTED_RELEASE_SHA, got $VALIDATION_RELEASE_SHA" >&2
+            exit 1
+          fi
+
+      - name: Resolve packaged artifact name
+        id: packaged_artifacts
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: echo "value=macos-release-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve packaged file paths
+        id: packaged_files
+        run: |
+          set -euo pipefail
+          SEARCH_DIR="promoted-artifacts"
+          ZIP_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.zip' ! -name '*.dSYM.zip' ! -name '*.notary.zip' -print | sort | tail -n 1)"
+          DMG_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dmg' -print | sort | tail -n 1)"
+          DSYM_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dSYM.zip' -print | sort | tail -n 1)"
+          if [[ -z "$ZIP_PATH" || -z "$DMG_PATH" || -z "$DSYM_PATH" ]]; then
+            echo "Missing packaged outputs in $SEARCH_DIR" >&2
+            ls -la "$SEARCH_DIR" >&2 || true
+            exit 1
+          fi
+          echo "zip=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+          echo "dmg=$DMG_PATH" >> "$GITHUB_OUTPUT"
+          echo "dsym=$DSYM_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve appcast path
+        id: appcast_path
+        if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
+        run: |
+          set -euo pipefail
+          APPCAST_PATH="$(find promoted-appcast -type f -name 'appcast.xml' -print | sort | tail -n 1)"
+          if [[ -z "$APPCAST_PATH" || ! -f "$APPCAST_PATH" ]]; then
+            echo "Stable appcast artifact not found." >&2
+            exit 1
+          fi
+          echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve packaged version
+        id: packaged_version
+        run: |
+          set -euo pipefail
+          VERSION="$(basename "${{ steps.packaged_files.outputs.zip }}")"
+          VERSION="${VERSION#OpenClaw-}"
+          VERSION="${VERSION%.zip}"
+          if [[ -z "$VERSION" ]]; then
+            echo "Unable to resolve packaged version from zip filename." >&2
+            exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload stable appcast artifact
+        if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-appcast-${{ inputs.tag }}
+          path: ${{ steps.appcast_path.outputs.path }}
+          if-no-files-found: error
+
+      - name: Skip shared appcast for beta releases
+        if: ${{ steps.release_channel.outputs.is_beta == 'true' }}
+        run: echo "Beta release detected; skip shared production appcast artifact generation."
+
+      - name: Upload packaged macOS artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.packaged_artifacts.outputs.value }}
+          path: |
+            ${{ steps.packaged_files.outputs.zip }}
+            ${{ steps.packaged_files.outputs.dmg }}
+            ${{ steps.packaged_files.outputs.dsym }}
           if-no-files-found: error
 
       - name: Upload packaged macOS assets to public GitHub release
-        if: ${{ !inputs.preflight_only && !inputs.smoke_test_only }}
         env:
           GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
@@ -478,7 +725,6 @@ jobs:
             --repo "$OPENCLAW_REPOSITORY"
 
       - name: Verify public GitHub release assets
-        if: ${{ !inputs.preflight_only && !inputs.smoke_test_only }}
         env:
           GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
@@ -499,11 +745,9 @@ jobs:
       - name: Summarize follow-up
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-          VERSION: ${{ steps.package_version.outputs.value }}
+          VERSION: ${{ steps.packaged_version.outputs.value }}
           ARTIFACT_NAME: ${{ steps.packaged_artifacts.outputs.value }}
-          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
           PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
-          SMOKE_TEST_ONLY: ${{ inputs.smoke_test_only }}
           IS_BETA: ${{ steps.release_channel.outputs.is_beta }}
         run: |
           set -euo pipefail
@@ -513,28 +757,11 @@ jobs:
             echo "- Packaged artifacts: \`${ARTIFACT_NAME}\`"
             echo "- Version: \`${VERSION}\`"
             echo
-            if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
-              echo "This was a smoke-test run. Artifacts are ad-hoc signed, not notarized, and not suitable for release readiness."
-            elif [[ -n "$PREFLIGHT_RUN_ID" ]]; then
-              echo "This real publish reused preflight artifacts from run \`${PREFLIGHT_RUN_ID}\`; no rebuild/sign/notarize work ran in this publish job."
-            elif [[ "$PREFLIGHT_ONLY" == "true" ]]; then
-              echo "This was a private preflight run. Inspect the packaged artifacts before any real publish run."
-            else
-              echo "This was a real private publish run. The workflow uploaded the \`.zip\`, \`.dmg\`, and \`.dSYM.zip\` files to the existing release in \`${OPENCLAW_REPOSITORY}\`."
-            fi
+            echo "This real publish reused preflight artifacts from run \`${PREFLIGHT_RUN_ID}\`; no rebuild, signing, or notarization work ran in this publish job."
             echo
-            if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
-              echo "Smoke-test mode skips shared production \`appcast.xml\` generation."
-            elif [[ "$IS_BETA" != "true" ]]; then
+            if [[ "$IS_BETA" != "true" ]]; then
               echo "For stable releases, also download \`macos-appcast-${RELEASE_TAG}\` and commit \`appcast.xml\` back to \`main\` in \`${OPENCLAW_REPOSITORY}\`."
             else
               echo "Beta release detected; no shared production \`appcast.xml\` artifact is generated."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Clean up signing keychain
-        if: always()
-        run: |
-          if [[ -n "${KEYCHAIN_PATH:-}" ]]; then
-            security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
-          fi
