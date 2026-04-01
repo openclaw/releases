@@ -573,9 +573,9 @@ jobs:
           EXPECTED_RELEASE_SHA: ${{ steps.expected_release.outputs.sha }}
         run: |
           set -euo pipefail
-          TAG_FILE="promoted-artifacts/release-tag.txt"
-          SHA_FILE="promoted-artifacts/release-sha.txt"
-          if [[ ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
+          TAG_FILE="$(find promoted-artifacts -type f -name 'release-tag.txt' -print | sort | tail -n 1)"
+          SHA_FILE="$(find promoted-artifacts -type f -name 'release-sha.txt' -print | sort | tail -n 1)"
+          if [[ -z "$TAG_FILE" || -z "$SHA_FILE" || ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
             echo "Prepared macOS preflight metadata is missing." >&2
             ls -la promoted-artifacts >&2 || true
             exit 1
@@ -616,9 +616,9 @@ jobs:
           EXPECTED_RELEASE_SHA: ${{ steps.expected_release.outputs.sha }}
         run: |
           set -euo pipefail
-          TAG_FILE="promoted-validation/release-tag.txt"
-          SHA_FILE="promoted-validation/release-sha.txt"
-          if [[ ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
+          TAG_FILE="$(find promoted-validation -type f -name 'release-tag.txt' -print | sort | tail -n 1)"
+          SHA_FILE="$(find promoted-validation -type f -name 'release-sha.txt' -print | sort | tail -n 1)"
+          if [[ -z "$TAG_FILE" || -z "$SHA_FILE" || ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
             echo "Validation proof metadata is missing." >&2
             ls -la promoted-validation >&2 || true
             exit 1
