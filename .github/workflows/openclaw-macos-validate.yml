@@ -88,6 +88,29 @@ jobs:
           done
           exit 1
 
+      - name: Capture validation provenance
+        id: validation_provenance
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          RELEASE_SHA="$(git -C source rev-parse HEAD)"
+          ARTIFACT_DIR="$RUNNER_TEMP/openclaw-macos-validate"
+          rm -rf "$ARTIFACT_DIR"
+          mkdir -p "$ARTIFACT_DIR"
+          printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag.txt"
+          printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha.txt"
+          echo "dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Upload validation proof artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-validate-${{ inputs.tag }}
+          path: |
+            ${{ steps.validation_provenance.outputs.dir }}/release-tag.txt
+            ${{ steps.validation_provenance.outputs.dir }}/release-sha.txt
+          if-no-files-found: error
+
       - name: Summarize validation
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -97,6 +120,7 @@ jobs:
             echo
             echo "- Tag: \`${RELEASE_TAG}\`"
             echo "- Validation: \`swift test --package-path apps/macos --parallel\`"
+            echo "- Validation proof artifact: \`macos-validate-${RELEASE_TAG}\`"
             echo
             echo "This lane is release-blocking validation, but it does not build, sign, notarize, package, or upload release artifacts."
           } >> "$GITHUB_STEP_SUMMARY"

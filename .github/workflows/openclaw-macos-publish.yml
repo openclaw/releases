@@ -21,6 +21,10 @@ on:
         description: Existing successful private mac preflight workflow run id to promote without rebuilding or renotarizing
         required: false
         type: string
+      validate_run_id:
+        description: Existing successful private mac validate workflow run id to prove the required swift test gate passed for this tag
+        required: false
+        type: string
 
 concurrency:
   group: openclaw-macos-publish-${{ contains(inputs.tag, '-beta.') && inputs.tag || 'stable-feed' }}
@@ -74,12 +78,27 @@ jobs:
           echo "preflight_run_id is only valid for real publish runs."
           exit 1
 
+      - name: Forbid validation run reuse on validation-only runs
+        if: ${{ inputs.preflight_only && inputs.validate_run_id != '' }}
+        run: |
+          echo "validate_run_id is only valid for real publish runs."
+          exit 1
+
       - name: Require preflight artifact promotion on real publish
         if: ${{ !inputs.preflight_only }}
         run: |
           set -euo pipefail
           if [[ -z "${{ inputs.preflight_run_id }}" ]]; then
             echo "Real publish requires preflight_run_id from a successful private mac preflight run." >&2
+            exit 1
+          fi
+
+      - name: Require private mac validation run on real publish
+        if: ${{ !inputs.preflight_only }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ inputs.validate_run_id }}" ]]; then
+            echo "Real publish requires validate_run_id from a successful private mac validation run." >&2
             exit 1
           fi
 
@@ -214,6 +233,20 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm release:check
+
+      - name: Capture release provenance
+        id: release_provenance
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          RELEASE_SHA="$(git -C source rev-parse HEAD)"
+          ARTIFACT_DIR="$RUNNER_TEMP/openclaw-macos-preflight"
+          rm -rf "$ARTIFACT_DIR"
+          mkdir -p "$ARTIFACT_DIR"
+          printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag.txt"
+          printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha.txt"
+          echo "dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Package macOS smoke-test artifacts
         if: ${{ inputs.smoke_test_only }}
@@ -417,6 +450,8 @@ jobs:
             ${{ steps.packaged_files.outputs.zip }}
             ${{ steps.packaged_files.outputs.dmg }}
             ${{ steps.packaged_files.outputs.dsym }}
+            ${{ steps.release_provenance.outputs.dir }}/release-tag.txt
+            ${{ steps.release_provenance.outputs.dir }}/release-sha.txt
           if-no-files-found: error
 
       - name: Summarize follow-up
@@ -483,6 +518,46 @@ jobs:
             echo "is_beta=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify preflight run metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
+        run: |
+          set -euo pipefail
+          RUN_JSON="$(gh run view "$PREFLIGHT_RUN_ID" --repo "$GITHUB_REPOSITORY" --json workflowName,headBranch,event,conclusion,url)"
+          printf '%s' "$RUN_JSON" | node -e 'const fs = require("node:fs"); const run = JSON.parse(fs.readFileSync(0, "utf8")); const checks = [["workflowName", "OpenClaw macOS Publish"], ["headBranch", "main"], ["event", "workflow_dispatch"], ["conclusion", "success"]]; for (const [key, expected] of checks) { if (run[key] !== expected) { console.error(`Referenced mac preflight run ${process.env.PREFLIGHT_RUN_ID} must have ${key}=${expected}, got ${run[key] ?? "<missing>"}.`); process.exit(1); } } console.log(`Using mac preflight run ${process.env.PREFLIGHT_RUN_ID}: ${run.url}`);'
+
+      - name: Verify validate run metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATE_RUN_ID: ${{ inputs.validate_run_id }}
+        run: |
+          set -euo pipefail
+          RUN_JSON="$(gh run view "$VALIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json workflowName,headBranch,event,conclusion,url)"
+          printf '%s' "$RUN_JSON" | node -e 'const fs = require("node:fs"); const run = JSON.parse(fs.readFileSync(0, "utf8")); const checks = [["workflowName", "OpenClaw macOS Validate"], ["headBranch", "main"], ["event", "workflow_dispatch"], ["conclusion", "success"]]; for (const [key, expected] of checks) { if (run[key] !== expected) { console.error(`Referenced mac validation run ${process.env.VALIDATE_RUN_ID} must have ${key}=${expected}, got ${run[key] ?? "<missing>"}.`); process.exit(1); } } console.log(`Using mac validation run ${process.env.VALIDATE_RUN_ID}: ${run.url}`);'
+
+      - name: Resolve expected public release commit
+        id: expected_release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          EXPECTED_RELEASE_SHA=""
+          while IFS=$'\t' read -r oid ref; do
+            if [[ "$ref" == "refs/tags/${RELEASE_TAG}^{}" ]]; then
+              EXPECTED_RELEASE_SHA="$oid"
+              break
+            fi
+            if [[ "$ref" == "refs/tags/${RELEASE_TAG}" ]]; then
+              EXPECTED_RELEASE_SHA="$oid"
+            fi
+          done < <(git ls-remote https://github.com/openclaw/openclaw.git "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")
+          if [[ -z "$EXPECTED_RELEASE_SHA" ]]; then
+            echo "Unable to resolve public tag commit for ${RELEASE_TAG}." >&2
+            exit 1
+          fi
+          echo "sha=$EXPECTED_RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Download prepared macOS artifacts
         uses: actions/download-artifact@v8
         with:
@@ -491,6 +566,30 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ inputs.preflight_run_id }}
           github-token: ${{ github.token }}
+
+      - name: Verify prepared macOS artifact provenance
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_RELEASE_SHA: ${{ steps.expected_release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          TAG_FILE="promoted-artifacts/release-tag.txt"
+          SHA_FILE="promoted-artifacts/release-sha.txt"
+          if [[ ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
+            echo "Prepared macOS preflight metadata is missing." >&2
+            ls -la promoted-artifacts >&2 || true
+            exit 1
+          fi
+          ARTIFACT_RELEASE_TAG="$(tr -d '\r\n' < "$TAG_FILE")"
+          ARTIFACT_RELEASE_SHA="$(tr -d '\r\n' < "$SHA_FILE")"
+          if [[ "$ARTIFACT_RELEASE_TAG" != "$RELEASE_TAG" ]]; then
+            echo "Prepared macOS preflight tag mismatch: expected $RELEASE_TAG, got $ARTIFACT_RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ "$ARTIFACT_RELEASE_SHA" != "$EXPECTED_RELEASE_SHA" ]]; then
+            echo "Prepared macOS preflight SHA mismatch: expected $EXPECTED_RELEASE_SHA, got $ARTIFACT_RELEASE_SHA" >&2
+            exit 1
+          fi
 
       - name: Download prepared stable appcast artifact
         if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
@@ -501,6 +600,39 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ inputs.preflight_run_id }}
           github-token: ${{ github.token }}
+
+      - name: Download validation proof artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-validate-${{ inputs.tag }}
+          path: promoted-validation
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.validate_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify validation artifact provenance
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_RELEASE_SHA: ${{ steps.expected_release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          TAG_FILE="promoted-validation/release-tag.txt"
+          SHA_FILE="promoted-validation/release-sha.txt"
+          if [[ ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
+            echo "Validation proof metadata is missing." >&2
+            ls -la promoted-validation >&2 || true
+            exit 1
+          fi
+          VALIDATION_RELEASE_TAG="$(tr -d '\r\n' < "$TAG_FILE")"
+          VALIDATION_RELEASE_SHA="$(tr -d '\r\n' < "$SHA_FILE")"
+          if [[ "$VALIDATION_RELEASE_TAG" != "$RELEASE_TAG" ]]; then
+            echo "Validation proof tag mismatch: expected $RELEASE_TAG, got $VALIDATION_RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ "$VALIDATION_RELEASE_SHA" != "$EXPECTED_RELEASE_SHA" ]]; then
+            echo "Validation proof SHA mismatch: expected $EXPECTED_RELEASE_SHA, got $VALIDATION_RELEASE_SHA" >&2
+            exit 1
+          fi
 
       - name: Resolve packaged artifact name
         id: packaged_artifacts
