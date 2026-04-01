@@ -54,6 +54,9 @@ live in `openclaw/openclaw`.
 - Validation-only and preflight-only runs may still be dispatched from branches
   while iterating on workflow changes, but their run ids are not valid for real
   publish.
+- Do not start the real private mac publish until public npm preflight, public
+  mac validation, private mac validation, and private mac preflight have all
+  passed.
 - `preflight_only=false` is now promotion-only and must reuse both:
   - a successful private preflight run via `preflight_run_id`
   - a successful private validation run via `validate_run_id`
