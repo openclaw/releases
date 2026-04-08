@@ -212,6 +212,8 @@ jobs:
 
       - name: Build
         working-directory: source
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm build
 
       - name: Build Control UI
