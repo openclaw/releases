@@ -206,6 +206,8 @@ jobs:
 
       - name: Check
         working-directory: source
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm check
 
       - name: Build
