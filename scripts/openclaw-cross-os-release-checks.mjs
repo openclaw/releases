@@ -397,10 +397,15 @@ async function runUpgradeLane(params) {
     const baseline = readInstalledMetadata(lane.prefixDir);
 
     logLanePhase(lane, "update");
+    const updateArgs = ["update", "--tag", params.candidateUrl, "--yes"];
+    if (process.platform === "win32") {
+      updateArgs.push("--no-restart");
+    }
+    updateArgs.push("--json");
     await runOpenClaw({
       lane,
       env,
-      args: ["update", "--tag", params.candidateUrl, "--yes", "--json"],
+      args: updateArgs,
       logPath: join(params.logsDir, "upgrade-update.log"),
       timeoutMs: 20 * 60 * 1000,
     });
@@ -732,6 +737,9 @@ async function startGateway(params) {
 }
 
 async function waitForGateway(params) {
+  if (process.platform === "win32") {
+    return waitForGatewayRpcProbe(params);
+  }
   const statusArgs = await resolveGatewayStatusArgs(params.lane, params.env, params.logPath);
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
@@ -749,6 +757,26 @@ async function waitForGateway(params) {
     await sleep(2_000);
   }
   throw new Error(`Gateway did not become ready on port ${params.lane.gatewayPort}.`);
+}
+
+async function waitForGatewayRpcProbe(params) {
+  const probeArgs = ["gateway", "probe", "--url", `ws://127.0.0.1:${params.lane.gatewayPort}`, "--timeout", "5000", "--json"];
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    const result = await runOpenClaw({
+      lane: params.lane,
+      env: params.env,
+      args: probeArgs,
+      logPath: params.logPath,
+      timeoutMs: 15_000,
+      check: false,
+    });
+    if (result.exitCode === 0) {
+      return;
+    }
+    await sleep(2_000);
+  }
+  throw new Error(`Gateway RPC did not become ready on port ${params.lane.gatewayPort}.`);
 }
 
 async function resolveGatewayStatusArgs(lane, env, logPath) {
@@ -917,9 +945,6 @@ async function runCleanup(cleanupFns) {
 }
 
 async function runOpenClaw(params) {
-  if (process.platform === "win32" && shouldUseWindowsDetachedOpenClawHelper(params.args)) {
-    return runOpenClawViaWindowsDetachedHelper(params);
-  }
   return runCommand(process.execPath, [installedEntryPath(params.lane.prefixDir), ...params.args], {
     cwd: params.lane.homeDir,
     env: params.env,
@@ -927,133 +952,6 @@ async function runOpenClaw(params) {
     timeoutMs: params.timeoutMs,
     check: params.check ?? true,
   });
-}
-
-function shouldUseWindowsDetachedOpenClawHelper(args) {
-  return args[0] === "update";
-}
-
-async function runOpenClawViaWindowsDetachedHelper(params) {
-  const helperDir = mkdtempSync(join(tmpdir(), `openclaw-helper-${params.lane.name}-`));
-  const runnerPath = join(helperDir, "runner.ps1");
-  const argsPath = join(helperDir, "args.json");
-  const donePath = join(helperDir, "done.txt");
-  const payload = {
-    nodePath: process.execPath,
-    entryPath: installedEntryPath(params.lane.prefixDir),
-    args: params.args,
-  };
-
-  writeFileSync(argsPath, JSON.stringify(payload), "utf8");
-  writeFileSync(
-    runnerPath,
-    [
-      "param(",
-      "  [Parameter(Mandatory = $true)][string]$ArgsJsonPath,",
-      "  [Parameter(Mandatory = $true)][string]$LogPath,",
-      "  [Parameter(Mandatory = $true)][string]$DonePath",
-      ")",
-      "",
-      "$ErrorActionPreference = 'Stop'",
-      "$PSNativeCommandUseErrorActionPreference = $false",
-      "",
-      "try {",
-      "  $payload = Get-Content -Path $ArgsJsonPath -Raw | ConvertFrom-Json",
-      "  $nodePath = [string]$payload.nodePath",
-      "  $entryPath = [string]$payload.entryPath",
-      "  $cliArgs = @($payload.args | ForEach-Object { [string]$_ })",
-      "  \"==> helper.start\" | Tee-Object -FilePath $LogPath -Append | Out-Null",
-      "  $output = & $nodePath $entryPath @cliArgs *>&1",
-      "  $exitCode = $LASTEXITCODE",
-      "  if ($null -ne $output) {",
-      "    $output | Tee-Object -FilePath $LogPath -Append | Out-Null",
-      "  }",
-      "  if ($null -eq $exitCode) {",
-      "    $exitCode = 0",
-      "  }",
-      "  \"==> helper.exit $exitCode\" | Tee-Object -FilePath $LogPath -Append | Out-Null",
-      "  Set-Content -Path $DonePath -Value ([string]$exitCode)",
-      "  exit $exitCode",
-      "} catch {",
-      "  if (Test-Path $LogPath) {",
-      "    Add-Content -Path $LogPath -Value ($_ | Out-String)",
-      "  } else {",
-      "    ($_ | Out-String) | Set-Content -Path $LogPath",
-      "  }",
-      "  Set-Content -Path $DonePath -Value '1'",
-      "  exit 1",
-      "}",
-      "",
-    ].join("\n"),
-    "utf8",
-  );
-
-  const helper = spawn(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      runnerPath,
-      "-ArgsJsonPath",
-      argsPath,
-      "-LogPath",
-      params.logPath,
-      "-DonePath",
-      donePath,
-    ],
-    {
-      cwd: params.lane.homeDir,
-      env: params.env,
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    },
-  );
-  helper.unref();
-
-  const deadline = Date.now() + (params.timeoutMs ?? 0);
-  try {
-    while (true) {
-      if (existsSync(donePath)) {
-        const exitCode = Number.parseInt(readFileSync(donePath, "utf8").trim(), 10);
-        const result = {
-          exitCode: Number.isFinite(exitCode) ? exitCode : 1,
-          stdout: "",
-          stderr: "",
-        };
-        if ((params.check ?? true) && result.exitCode !== 0) {
-          throw new Error(
-            `Command failed (${result.exitCode}): ${process.execPath} ${payload.entryPath} ${params.args.join(" ")}\n${readLogTail(params.logPath)}`,
-          );
-        }
-        return result;
-      }
-      if (params.timeoutMs && Number.isFinite(params.timeoutMs) && Date.now() >= deadline) {
-        if (helper.pid) {
-          await runCommand("taskkill", ["/PID", String(helper.pid), "/T", "/F"], {
-            logPath: params.logPath,
-            check: false,
-            timeoutMs: 30_000,
-          }).catch(() => {});
-        }
-        throw new Error(
-          `Command timed out: ${process.execPath} ${payload.entryPath} ${params.args.join(" ")}\n${readLogTail(params.logPath)}`,
-        );
-      }
-      await sleep(2_000);
-    }
-  } finally {
-    rmSync(helperDir, { recursive: true, force: true });
-  }
-}
-
-function readLogTail(logPath) {
-  if (!existsSync(logPath)) {
-    return "";
-  }
-  return trimForSummary(readFileSync(logPath, "utf8"));
 }
 
 function readInstalledMetadata(prefixDir) {
