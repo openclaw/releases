@@ -188,6 +188,13 @@ async function prepareCandidate(params) {
     timeoutMs: 45 * 60 * 1000,
   });
 
+  await runCommand(pnpmCommand(), ["ui:build"], {
+    cwd: params.sourceDir,
+    env: buildEnv,
+    logPath: join(params.logsDir, "pnpm-ui-build.log"),
+    timeoutMs: 30 * 60 * 1000,
+  });
+
   const packDir = join(outputDir, "package");
   mkdirSync(packDir, { recursive: true });
   const packJsonPath = join(packDir, "pack.json");
@@ -418,6 +425,7 @@ function buildLaneEnv(lane, providerMeta, providerSecretValue) {
     OPENCLAW_HOME: lane.homeDir,
     OPENCLAW_STATE_DIR: lane.stateDir,
     OPENCLAW_CONFIG_PATH: join(lane.stateDir, "openclaw.json"),
+    OPENCLAW_DISABLE_BONJOUR: "1",
     NPM_CONFIG_PREFIX: lane.prefixDir,
     PATH: `${binDirForPrefix(lane.prefixDir)}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
     [providerMeta.secretEnv]: providerSecretValue,
