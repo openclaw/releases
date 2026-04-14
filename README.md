@@ -60,6 +60,9 @@ live in `openclaw/openclaw`.
   install, upgrade, gateway, and end-to-end validation on GitHub-hosted Linux,
   macOS, and Windows runners, and it is intentionally outside the critical
   release publish path.
+- The cross-OS workflow builds and packs the candidate once, then reuses that
+  same npm tarball across Linux, macOS, and Windows so every lane validates the
+  exact same artifact.
 - Do not start the real private mac publish until public npm preflight, public
   mac validation, private mac validation, and private mac preflight have all
   passed.
@@ -89,6 +92,15 @@ live in `openclaw/openclaw`.
 The cross-OS workflow selects one provider lane per run. It requires the
 matching provider key to exist as a repo secret, but it does not require Apple
 signing or notarization secrets.
+
+Optional repo variables for runner sizing:
+
+- `OPENCLAW_RELEASE_CHECKS_UBUNTU_RUNNER`
+- `OPENCLAW_RELEASE_CHECKS_WINDOWS_RUNNER`
+- `OPENCLAW_RELEASE_CHECKS_MACOS_RUNNER`
+
+Set those to the largest GitHub-hosted runner labels available to this repo if
+you want to override the workflow defaults without editing the workflow file.
 
 ## Repo policy
 

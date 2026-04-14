@@ -9,11 +9,16 @@ import { dirname, join, resolve } from "node:path";
 import { createServer as createNetServer } from "node:net";
 
 const args = parseArgs(process.argv.slice(2));
-const sourceDir = requireArg(args, "source-dir");
-const provider = requireArg(args, "provider");
-const mode = args["mode"] ?? "both";
 const outputDir = resolve(requireArg(args, "output-dir"));
+const prepareOnly = args["prepare-only"] === "true";
+const sourceDir = args["source-dir"]?.trim() ? resolve(args["source-dir"].trim()) : "";
+const provider = args["provider"]?.trim() || "";
+const mode = args["mode"] ?? "both";
 const previousVersion = args["previous-version"]?.trim() || "";
+const baselineSpec = args["baseline-spec"]?.trim() || (previousVersion ? `openclaw@${previousVersion}` : "openclaw@latest");
+const providedCandidateTgz = args["candidate-tgz"]?.trim() ? resolve(args["candidate-tgz"].trim()) : "";
+const providedCandidateVersion = args["candidate-version"]?.trim() || "";
+const providedSourceSha = args["source-sha"]?.trim() || "";
 
 const providerConfig = {
   openai: {
@@ -33,10 +38,6 @@ const providerConfig = {
   },
 };
 
-if (!Object.hasOwn(providerConfig, provider)) {
-  throw new Error(`Unsupported provider "${provider}".`);
-}
-
 if (!new Set(["fresh", "upgrade", "both"]).has(mode)) {
   throw new Error(`Unsupported mode "${mode}".`);
 }
@@ -44,6 +45,22 @@ if (!new Set(["fresh", "upgrade", "both"]).has(mode)) {
 mkdirSync(outputDir, { recursive: true });
 const logsDir = join(outputDir, "logs");
 mkdirSync(logsDir, { recursive: true });
+
+if (prepareOnly) {
+  if (!sourceDir) {
+    throw new Error("--prepare-only requires --source-dir.");
+  }
+  const build = await prepareCandidate({
+    sourceDir,
+    logsDir,
+  });
+  writeCandidateManifest(outputDir, build);
+  process.exit(0);
+}
+
+if (!Object.hasOwn(providerConfig, provider)) {
+  throw new Error(`Unsupported provider "${provider}".`);
+}
 
 const selectedProvider = providerConfig[provider];
 const providerSecretValue = process.env[selectedProvider.secretEnv]?.trim();
@@ -58,11 +75,11 @@ const summary = {
   provider,
   mode,
   previousVersion: previousVersion || null,
-  sourceDir: resolve(sourceDir),
+  sourceDir,
   sourceSha: "",
   candidateVersion: "",
   candidateTgz: "",
-  baselineSpec: previousVersion ? `openclaw@${previousVersion}` : "openclaw@latest",
+  baselineSpec,
   fresh: { status: mode === "upgrade" ? "skipped" : "pending" },
   upgrade: { status: mode === "fresh" ? "skipped" : "pending" },
 };
@@ -70,10 +87,16 @@ const summary = {
 let overallFailed = false;
 
 try {
-  const build = await prepareCandidate({
-    sourceDir: resolve(sourceDir),
-    logsDir,
-  });
+  const build = sourceDir
+    ? await prepareCandidate({
+        sourceDir,
+        logsDir,
+      })
+    : readProvidedCandidate({
+        candidateTgz: providedCandidateTgz,
+        candidateVersion: providedCandidateVersion,
+        sourceSha: providedSourceSha,
+      });
   summary.sourceSha = build.sourceSha;
   summary.candidateVersion = build.candidateVersion;
   summary.candidateTgz = build.candidateTgz;
@@ -105,7 +128,7 @@ try {
       try {
         summary.upgrade = await runUpgradeLane({
           build,
-          baselineSpec: summary.baselineSpec,
+          baselineSpec,
           candidateUrl: tgzServer.url,
           logsDir,
           providerConfig: selectedProvider,
@@ -185,6 +208,29 @@ async function prepareCandidate(params) {
     sourceSha,
     candidateVersion: String(lastPack.version ?? packageJson.version ?? "").trim(),
     candidateTgz: join(packDir, lastPack.filename),
+    candidateFileName: String(lastPack.filename).trim(),
+  };
+}
+
+function readProvidedCandidate(params) {
+  if (!params.candidateTgz) {
+    throw new Error("Missing required --candidate-tgz argument when --source-dir is not provided.");
+  }
+  if (!existsSync(params.candidateTgz)) {
+    throw new Error(`Candidate package not found: ${params.candidateTgz}`);
+  }
+  if (!params.candidateVersion) {
+    throw new Error("Missing required --candidate-version argument when --source-dir is not provided.");
+  }
+  if (!params.sourceSha) {
+    throw new Error("Missing required --source-sha argument when --source-dir is not provided.");
+  }
+  return {
+    sourceDir: "",
+    sourceSha: params.sourceSha,
+    candidateVersion: params.candidateVersion,
+    candidateTgz: params.candidateTgz,
+    candidateFileName: params.candidateTgz.split(/[/\\]/u).at(-1) ?? "",
   };
 }
 
@@ -222,6 +268,11 @@ async function runFreshLane(params) {
       logPath: join(params.logsDir, "fresh-gateway-status.log"),
     });
 
+    await runDashboardSmoke({
+      lane,
+      logPath: join(params.logsDir, "fresh-dashboard.log"),
+    });
+
     await runModelsSet({
       lane,
       env,
@@ -240,6 +291,7 @@ async function runFreshLane(params) {
       status: "pass",
       installedVersion: installed.version,
       installedCommit: installed.commit,
+      dashboardStatus: "pass",
       gatewayPort: lane.gatewayPort,
       agentOutput: trimForSummary(agent.stdout),
     };
@@ -301,6 +353,11 @@ async function runUpgradeLane(params) {
       logPath: join(params.logsDir, "upgrade-gateway-status.log"),
     });
 
+    await runDashboardSmoke({
+      lane,
+      logPath: join(params.logsDir, "upgrade-dashboard.log"),
+    });
+
     await runModelsSet({
       lane,
       env,
@@ -320,6 +377,7 @@ async function runUpgradeLane(params) {
       baselineVersion: baseline.version,
       installedVersion: installed.version,
       installedCommit: installed.commit,
+      dashboardStatus: "pass",
       gatewayPort: lane.gatewayPort,
       agentOutput: trimForSummary(agent.stdout),
     };
@@ -482,6 +540,42 @@ async function runAgentTurn(params) {
     throw new Error("Agent output did not contain the expected OK marker.");
   }
   return result;
+}
+
+async function runDashboardSmoke(params) {
+  const dashboardUrl = `http://127.0.0.1:${params.lane.gatewayPort}/`;
+  const logStream = createWriteStream(params.logPath, { flags: "a" });
+  const deadline = Date.now() + 30_000;
+  let attempt = 0;
+  try {
+    while (Date.now() < deadline) {
+      attempt += 1;
+      logStream.write(`${new Date().toISOString()} attempt=${attempt} url=${dashboardUrl}\n`);
+      try {
+        const response = await fetch(dashboardUrl, {
+          signal: AbortSignal.timeout(5_000),
+        });
+        const html = await response.text();
+        if (
+          response.ok &&
+          html.includes("<title>OpenClaw Control</title>") &&
+          html.includes("<openclaw-app></openclaw-app>")
+        ) {
+          logStream.write(`${new Date().toISOString()} dashboard-ready status=${response.status}\n`);
+          return;
+        }
+        logStream.write(
+          `${new Date().toISOString()} dashboard-not-ready status=${response.status} title=${html.includes("<title>OpenClaw Control</title>")} app=${html.includes("<openclaw-app></openclaw-app>")}\n`,
+        );
+      } catch (error) {
+        logStream.write(`${new Date().toISOString()} dashboard-fetch-error ${formatError(error)}\n`);
+      }
+      await sleep(1_000);
+    }
+  } finally {
+    logStream.end();
+  }
+  throw new Error(`Dashboard HTML did not become ready at ${dashboardUrl}.`);
 }
 
 async function stopGateway(gateway) {
@@ -703,9 +797,32 @@ function writeSummary(baseDir, summaryPayload) {
     `- Candidate version: \`${summaryPayload.candidateVersion || "unknown"}\``,
     `- Baseline spec: \`${summaryPayload.baselineSpec}\``,
     summaryPayload.fresh?.status ? `- Fresh lane: \`${summaryPayload.fresh.status}\`` : "",
+    summaryPayload.fresh?.dashboardStatus
+      ? `- Fresh dashboard: \`${summaryPayload.fresh.dashboardStatus}\``
+      : "",
     summaryPayload.upgrade?.status ? `- Upgrade lane: \`${summaryPayload.upgrade.status}\`` : "",
+    summaryPayload.upgrade?.dashboardStatus
+      ? `- Upgrade dashboard: \`${summaryPayload.upgrade.dashboardStatus}\``
+      : "",
   ].filter(Boolean);
   writeFileSync(summaryMarkdownPath, `${lines.join("\n")}\n`, "utf8");
+}
+
+function writeCandidateManifest(baseDir, build) {
+  const manifestPath = join(baseDir, "candidate.json");
+  writeFileSync(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        sourceSha: build.sourceSha,
+        candidateVersion: build.candidateVersion,
+        candidateFileName: build.candidateFileName,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 }
 
 function platformLabel() {
