@@ -617,11 +617,50 @@ async function stopGateway(gateway) {
     });
     return;
   }
-  gateway.child.kill("SIGTERM");
-  await sleep(2_000);
-  if (!gateway.child.killed) {
-    gateway.child.kill("SIGKILL");
+  if (gateway.child.exitCode !== null) {
+    return;
   }
+  gateway.child.kill("SIGTERM");
+  const exitedAfterTerm = await waitForChildExit(gateway.child, 2_000);
+  if (!exitedAfterTerm && gateway.child.exitCode === null) {
+    gateway.child.kill("SIGKILL");
+    await waitForChildExit(gateway.child, 5_000);
+  }
+}
+
+async function waitForChildExit(child, timeoutMs) {
+  if (child.exitCode !== null) {
+    return true;
+  }
+  return new Promise((resolvePromise) => {
+    let settled = false;
+    const finish = (didExit) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      child.off("exit", onExit);
+      child.off("close", onClose);
+      child.off("error", onError);
+      resolvePromise(didExit);
+    };
+    const onExit = () => finish(true);
+    const onClose = () => finish(true);
+    const onError = () => finish(true);
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            finish(false);
+          }, timeoutMs)
+        : null;
+
+    child.once("exit", onExit);
+    child.once("close", onClose);
+    child.once("error", onError);
+  });
 }
 
 async function runCleanup(cleanupFns) {
