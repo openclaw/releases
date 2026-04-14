@@ -390,14 +390,14 @@ async function runUpgradeLane(params) {
         logPath: join(params.logsDir, "upgrade-install-baseline.log"),
         restoreBundledPluginRuntimeDeps: false,
       });
-      if (shouldRestoreBundledPluginRuntimeDeps({ lane })) {
-        logLanePhase(lane, "restore-baseline-bundled-plugin-runtime-deps");
-        await runBundledPluginPostinstall({
-          lane,
-          env,
-          logPath: join(params.logsDir, "upgrade-install-baseline.log"),
-        });
-      }
+    }
+    if (shouldRestoreBundledPluginRuntimeDeps({ lane })) {
+      logLanePhase(lane, "restore-baseline-bundled-plugin-runtime-deps");
+      await runBundledPluginPostinstall({
+        lane,
+        env,
+        logPath: join(params.logsDir, "upgrade-install-baseline.log"),
+      });
     }
 
     const baseline = readInstalledMetadata(lane.prefixDir);
