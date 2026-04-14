@@ -22,6 +22,8 @@ live in `openclaw/openclaw`.
   `.github/workflows/openclaw-macos-publish.yml`
 - Optional private cross-OS release runtime workflow:
   `.github/workflows/openclaw-cross-os-release-checks.yml`
+- Private npm dist-tag sync workflow:
+  `.github/workflows/openclaw-npm-dist-tags.yml`
 - The validation workflow is the required `swift test` lane for release
   readiness, and each successful run uploads a `macos-validate-<tag>` proof
   artifact. It does not build, sign, notarize, package, or upload release
@@ -45,6 +47,15 @@ live in `openclaw/openclaw`.
   runs.
 - Real publish runs upload the `.zip`, `.dmg`, and `.dSYM.zip` files to the
   existing release in `openclaw/openclaw` automatically.
+- Stable npm dist-tag mutation now lives in the private workflow
+  `.github/workflows/openclaw-npm-dist-tags.yml`, so the public repo can keep
+  trusted publishing for `npm publish` without holding an npm write token.
+- That private workflow is self-healing: it runs daily and can also be rerun
+  manually without inputs.
+- It only moves `npm beta` to the current stable `npm latest` after confirming
+  the matching public release tag exists in `openclaw/openclaw`.
+- It intentionally leaves `beta` alone when it already matches `latest` or when
+  `beta` points at a newer future prerelease than the current stable release.
 - No GitHub App secret is required. Public source checkout and appcast seeding
   happen without extra credentials, and the cross-repo release upload uses
   `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN`.
@@ -82,6 +93,7 @@ live in `openclaw/openclaw`.
 - `SPARKLE_PRIVATE_KEY`
 - `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN` (`contents:write` on `openclaw/openclaw`
   is sufficient)
+- `NPM_TOKEN` (used only for `npm dist-tag add`, not for trusted publishing)
 
 ## Required repo secrets for cross-OS runtime checks
 
