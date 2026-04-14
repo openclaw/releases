@@ -1,7 +1,21 @@
-name: OpenClaw NPM Dist-Tag Sync
+name: OpenClaw NPM Dist-Tag Operations
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Dist-tag operation to run
+        required: true
+        default: sync_beta_to_stable
+        type: choice
+        options:
+          - sync_beta_to_stable
+          - promote_beta_to_latest
+          - sync_stable_dist_tags
+      tag:
+        description: Stable OpenClaw release tag for manual promotion and manual dist-tag sync (for example v2026.4.14 or v2026.4.14-1)
+        required: false
+        type: string
   schedule:
     - cron: "17 5 * * *"
 
@@ -16,6 +30,7 @@ env:
 
 jobs:
   sync_beta_to_stable:
+    if: ${{ github.event_name == 'schedule' || inputs.mode == 'sync_beta_to_stable' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -165,9 +180,11 @@ jobs:
             exit 1
           fi
 
-          printf '//registry.npmjs.org/:_authToken=%s\n' "${NODE_AUTH_TOKEN}" > "${HOME}/.npmrc"
-          npm whoami >/dev/null
-          npm dist-tag add "openclaw@${RELEASE_VERSION}" beta
+          npm_userconfig="$(mktemp)"
+          trap 'rm -f "${npm_userconfig}"' EXIT
+          chmod 0600 "${npm_userconfig}"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NODE_AUTH_TOKEN}" > "${npm_userconfig}"
+          NPM_CONFIG_USERCONFIG="${npm_userconfig}" npm dist-tag add "openclaw@${RELEASE_VERSION}" beta
 
           synced_beta="$(npm view openclaw dist-tags.beta)"
           if [[ "${synced_beta}" != "${RELEASE_VERSION}" ]]; then
@@ -190,7 +207,7 @@ jobs:
           echo "beta=${BETA_VERSION}"
           echo "reason=${REASON}"
 
-      - name: Summarize dist-tag sync
+      - name: Summarize automatic dist-tag sync
         env:
           RELEASE_VERSION: ${{ steps.resolve_state.outputs.release_version }}
           BETA_VERSION: ${{ steps.resolve_state.outputs.beta_version }}
@@ -199,8 +216,9 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo "## Private npm dist-tag sync output"
+            echo "## Private npm dist-tag output"
             echo
+            echo "- Mode: \`sync_beta_to_stable\`"
             echo "- npm \`latest\`: \`${RELEASE_VERSION}\`"
             echo "- npm \`beta\` before run: \`${BETA_VERSION}\`"
             echo "- Action: \`${ACTION}\`"
@@ -210,4 +228,203 @@ jobs:
             else
               echo "- Result: no change"
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  promote_beta_to_latest:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'promote_beta_to_latest' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require main workflow ref for promotion
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "${WORKFLOW_REF}" != "refs/heads/main" ]]; then
+            echo "Promotion runs must be dispatched from main."
+            exit 1
+          fi
+
+      - name: Validate stable tag input format
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_TAG}" ]]; then
+            echo "Manual beta promotion requires a stable release tag." >&2
+            exit 1
+          fi
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*(-[1-9][0-9]*)?$ ]]; then
+            echo "Invalid stable release tag format: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate public stable tag exists
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code "https://github.com/${OPENCLAW_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}" >/dev/null; then
+            echo "Public release tag ${RELEASE_TAG} not found in ${OPENCLAW_REPOSITORY}." >&2
+            exit 1
+          fi
+
+      - name: Validate npm dist-tags
+        env:
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          set -euo pipefail
+          beta_version="$(npm view openclaw dist-tags.beta)"
+          latest_version="$(npm view openclaw dist-tags.latest)"
+
+          echo "Current beta dist-tag: ${beta_version}"
+          echo "Current latest dist-tag: ${latest_version}"
+
+          if [[ "${beta_version}" != "${RELEASE_VERSION}" ]]; then
+            echo "npm beta points at ${beta_version}, expected ${RELEASE_VERSION}." >&2
+            exit 1
+          fi
+
+          if ! npm view "openclaw@${RELEASE_VERSION}" version >/dev/null 2>&1; then
+            echo "openclaw@${RELEASE_VERSION} is not published on npm." >&2
+            exit 1
+          fi
+
+      - name: Promote beta to latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          set -euo pipefail
+          npm_userconfig="$(mktemp)"
+          trap 'rm -f "${npm_userconfig}"' EXIT
+          chmod 0600 "${npm_userconfig}"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NODE_AUTH_TOKEN}" > "${npm_userconfig}"
+          NPM_CONFIG_USERCONFIG="${npm_userconfig}" npm dist-tag add "openclaw@${RELEASE_VERSION}" latest
+          promoted_latest="$(npm view openclaw dist-tags.latest)"
+          if [[ "${promoted_latest}" != "${RELEASE_VERSION}" ]]; then
+            echo "npm latest points at ${promoted_latest}, expected ${RELEASE_VERSION} after promotion." >&2
+            exit 1
+          fi
+          echo "Promoted openclaw@${RELEASE_VERSION} from beta to latest."
+
+      - name: Summarize beta promotion
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Private npm dist-tag output"
+            echo
+            echo "- Mode: \`promote_beta_to_latest\`"
+            echo "- Release tag: \`${RELEASE_TAG}\`"
+            echo "- Version: \`${RELEASE_VERSION}\`"
+            echo "- Result: npm \`latest\` now points at this stable version"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sync_stable_dist_tags:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'sync_stable_dist_tags' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require main workflow ref for dist-tag sync
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "${WORKFLOW_REF}" != "refs/heads/main" ]]; then
+            echo "Dist-tag sync runs must be dispatched from main."
+            exit 1
+          fi
+
+      - name: Validate stable tag input format
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_TAG}" ]]; then
+            echo "Manual dist-tag sync requires a stable release tag." >&2
+            exit 1
+          fi
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*(-[1-9][0-9]*)?$ ]]; then
+            echo "Invalid stable release tag format: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate public stable tag exists
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code "https://github.com/${OPENCLAW_REPOSITORY}.git" "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}" >/dev/null; then
+            echo "Public release tag ${RELEASE_TAG} not found in ${OPENCLAW_REPOSITORY}." >&2
+            exit 1
+          fi
+
+      - name: Validate published stable version
+        env:
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          set -euo pipefail
+          if ! npm view "openclaw@${RELEASE_VERSION}" version >/dev/null 2>&1; then
+            echo "openclaw@${RELEASE_VERSION} is not published on npm." >&2
+            exit 1
+          fi
+
+          echo "Current latest dist-tag: $(npm view openclaw dist-tags.latest)"
+          echo "Current beta dist-tag: $(npm view openclaw dist-tags.beta)"
+
+      - name: Sync stable dist-tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          set -euo pipefail
+          npm_userconfig="$(mktemp)"
+          trap 'rm -f "${npm_userconfig}"' EXIT
+          chmod 0600 "${npm_userconfig}"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "${NODE_AUTH_TOKEN}" > "${npm_userconfig}"
+          NPM_CONFIG_USERCONFIG="${npm_userconfig}" npm dist-tag add "openclaw@${RELEASE_VERSION}" latest
+          NPM_CONFIG_USERCONFIG="${npm_userconfig}" npm dist-tag add "openclaw@${RELEASE_VERSION}" beta
+
+          synced_latest="$(npm view openclaw dist-tags.latest)"
+          synced_beta="$(npm view openclaw dist-tags.beta)"
+          if [[ "${synced_latest}" != "${RELEASE_VERSION}" ]]; then
+            echo "npm latest points at ${synced_latest}, expected ${RELEASE_VERSION} after sync." >&2
+            exit 1
+          fi
+          if [[ "${synced_beta}" != "${RELEASE_VERSION}" ]]; then
+            echo "npm beta points at ${synced_beta}, expected ${RELEASE_VERSION} after sync." >&2
+            exit 1
+          fi
+          echo "Synced openclaw@${RELEASE_VERSION} to npm latest and beta."
+
+      - name: Summarize manual dist-tag sync
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Private npm dist-tag output"
+            echo
+            echo "- Mode: \`sync_stable_dist_tags\`"
+            echo "- Release tag: \`${RELEASE_TAG}\`"
+            echo "- Version: \`${RELEASE_VERSION}\`"
+            echo "- Result: npm \`latest\` and \`beta\` now point at this stable version"
           } >> "$GITHUB_STEP_SUMMARY"
