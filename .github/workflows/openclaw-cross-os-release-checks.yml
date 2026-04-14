@@ -53,8 +53,9 @@ concurrency:
 jobs:
   cross_os_release_checks:
     permissions:
+      actions: read
       contents: read
-    uses: openclaw/openclaw/.github/workflows/openclaw-cross-os-release-checks-reusable.yml@main
+    uses: openclaw/openclaw/.github/workflows/openclaw-cross-os-release-checks-reusable.yml@codex/cross-os-reusable-workflow-permissions
     with:
       ref: ${{ inputs.ref }}
       provider: ${{ inputs.provider }}
