@@ -131,6 +131,7 @@ jobs:
             --output-dir "${OUTPUT_DIR}"
 
       - name: Resolve baseline package spec
+        if: ${{ inputs.mode != 'fresh' }}
         id: baseline
         env:
           INPUT_PREVIOUS_VERSION: ${{ inputs.previous_version }}
@@ -144,6 +145,7 @@ jobs:
           echo "value=openclaw@${BASELINE_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Pack baseline artifact
+        if: ${{ inputs.mode != 'fresh' }}
         env:
           BASELINE_SPEC: ${{ steps.baseline.outputs.value }}
           OUTPUT_DIR: ${{ runner.temp }}/openclaw-cross-os-release-checks/prepare/baseline
@@ -165,6 +167,7 @@ jobs:
           NODE
 
       - name: Capture baseline metadata
+        if: ${{ inputs.mode != 'fresh' }}
         id: baseline_metadata
         env:
           BASELINE_PACK_JSON: ${{ runner.temp }}/openclaw-cross-os-release-checks/prepare/baseline/pack.json
@@ -187,6 +190,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload baseline artifact
+        if: ${{ inputs.mode != 'fresh' }}
         uses: actions/upload-artifact@v7
         with:
           name: openclaw-cross-os-release-checks-baseline-${{ github.run_id }}
@@ -265,6 +269,7 @@ jobs:
           path: ${{ runner.temp }}/openclaw-cross-os-release-checks/candidate
 
       - name: Download baseline artifact
+        if: ${{ inputs.mode != 'fresh' }}
         uses: actions/download-artifact@v8
         with:
           name: openclaw-cross-os-release-checks-baseline-${{ github.run_id }}

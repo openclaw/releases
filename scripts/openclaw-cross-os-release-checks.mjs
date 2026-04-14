@@ -291,12 +291,6 @@ async function runFreshLane(params) {
     });
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
-    await installProviderRuntimeDeps({
-      lane,
-      env,
-      providerConfig: params.providerConfig,
-      logPath: join(params.logsDir, "fresh-provider-runtime-deps.log"),
-    });
 
     await runOnboard({
       lane,
@@ -385,15 +379,14 @@ async function runUpgradeLane(params) {
       logPath: join(params.logsDir, "upgrade-update-status.log"),
       timeoutMs: 2 * 60 * 1000,
     });
+    await runBundledPluginPostinstall({
+      lane,
+      env,
+      logPath: join(params.logsDir, "upgrade-bundled-plugin-postinstall.log"),
+    });
 
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
-    await installProviderRuntimeDeps({
-      lane,
-      env,
-      providerConfig: params.providerConfig,
-      logPath: join(params.logsDir, "upgrade-provider-runtime-deps.log"),
-    });
 
     await runOnboard({
       lane,
@@ -514,6 +507,11 @@ async function installTarballPackage(params) {
       env: params.env,
       logPath: params.logPath,
     });
+    await runBundledPluginPostinstall({
+      lane: params.lane,
+      env: params.env,
+      logPath: params.logPath,
+    });
   } finally {
     rmSync(stagingDir, { force: true, recursive: true });
   }
@@ -548,52 +546,27 @@ async function installPackageRuntimeDeps(params) {
   );
 }
 
-async function installProviderRuntimeDeps(params) {
+async function runBundledPluginPostinstall(params) {
   const packageRoot = installedPackageRoot(params.lane.prefixDir);
-  const extensionPackageJsonPath = join(
-    packageRoot,
-    "dist",
-    "extensions",
-    params.providerConfig.extensionId,
-    "package.json",
-  );
-  if (!existsSync(extensionPackageJsonPath)) {
+  const scriptPath = join(packageRoot, "scripts", "postinstall-bundled-plugins.mjs");
+  if (!existsSync(scriptPath)) {
     return;
   }
-  const extensionPackageJson = JSON.parse(readFileSync(extensionPackageJsonPath, "utf8"));
-  const dependencyEntries = Object.entries({
-    ...(extensionPackageJson.dependencies ?? {}),
-    ...(extensionPackageJson.optionalDependencies ?? {}),
-  });
-  if (dependencyEntries.length === 0) {
-    return;
-  }
-
   const installEnv = {
     ...params.env,
   };
+  delete installEnv.OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL;
   delete installEnv.NPM_CONFIG_PREFIX;
   delete installEnv.npm_config_global;
   delete installEnv.npm_config_location;
   delete installEnv.npm_config_prefix;
 
-  await runCommand(
-    npmCommand(),
-    [
-      "install",
-      "--omit=dev",
-      "--no-save",
-      "--package-lock=false",
-      "--legacy-peer-deps",
-      ...dependencyEntries.map(([name, version]) => `${name}@${version}`),
-    ],
-    {
-      cwd: packageRoot,
-      env: installEnv,
-      logPath: params.logPath,
-      timeoutMs: 10 * 60 * 1000,
-    },
-  );
+  await runCommand(process.execPath, [scriptPath], {
+    cwd: packageRoot,
+    env: installEnv,
+    logPath: params.logPath,
+    timeoutMs: 20 * 60 * 1000,
+  });
 }
 
 function ensureLocalNpmShim(lane) {
