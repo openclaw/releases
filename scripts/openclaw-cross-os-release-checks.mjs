@@ -296,14 +296,12 @@ async function runFreshLane(params) {
     });
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
-    if (shouldRestoreBundledPluginRuntimeDeps({ lane })) {
-      logLanePhase(lane, "restore-bundled-plugin-runtime-deps");
-      await runBundledPluginPostinstall({
-        lane,
-        env,
-        logPath: join(params.logsDir, "fresh-install.log"),
-      });
-    }
+    logLanePhase(lane, "restore-bundled-plugin-runtime-deps");
+    await runBundledPluginPostinstall({
+      lane,
+      env,
+      logPath: join(params.logsDir, "fresh-install.log"),
+    });
 
     logLanePhase(lane, "onboard");
     await runOnboard({
@@ -391,14 +389,12 @@ async function runUpgradeLane(params) {
         restoreBundledPluginRuntimeDeps: false,
       });
     }
-    if (shouldRestoreBundledPluginRuntimeDeps({ lane })) {
-      logLanePhase(lane, "restore-baseline-bundled-plugin-runtime-deps");
-      await runBundledPluginPostinstall({
-        lane,
-        env,
-        logPath: join(params.logsDir, "upgrade-install-baseline.log"),
-      });
-    }
+    logLanePhase(lane, "restore-baseline-bundled-plugin-runtime-deps");
+    await runBundledPluginPostinstall({
+      lane,
+      env,
+      logPath: join(params.logsDir, "upgrade-install-baseline.log"),
+    });
 
     const baseline = readInstalledMetadata(lane.prefixDir);
 
@@ -425,13 +421,11 @@ async function runUpgradeLane(params) {
       timeoutMs: 2 * 60 * 1000,
     });
     logLanePhase(lane, "restore-bundled-plugin-runtime-deps");
-    if (shouldRestoreBundledPluginRuntimeDeps({ lane })) {
-      await runBundledPluginPostinstall({
-        lane,
-        env,
-        logPath: join(params.logsDir, "upgrade-bundled-plugin-postinstall.log"),
-      });
-    }
+    await runBundledPluginPostinstall({
+      lane,
+      env,
+      logPath: join(params.logsDir, "upgrade-bundled-plugin-postinstall.log"),
+    });
 
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
@@ -1248,45 +1242,6 @@ function resolveCommandPath(command) {
 
 function shellEscapeForSh(value) {
   return value.replace(/'/gu, `'\"'\"'`);
-}
-
-function shouldRestoreBundledPluginRuntimeDeps(params) {
-  const packageRoot = installedPackageRoot(params.lane.prefixDir);
-  const extensionsDir = join(packageRoot, "dist", "extensions");
-  if (!existsSync(extensionsDir)) {
-    return true;
-  }
-  let extensionEntries;
-  try {
-    extensionEntries = readdirSync(extensionsDir, { withFileTypes: true });
-  } catch {
-    return true;
-  }
-  const depNames = new Set();
-  for (const entry of extensionEntries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    const packageJsonPath = join(extensionsDir, entry.name, "package.json");
-    if (!existsSync(packageJsonPath)) {
-      continue;
-    }
-    try {
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-      for (const depName of Object.keys(packageJson.dependencies ?? {})) {
-        depNames.add(depName);
-      }
-      for (const depName of Object.keys(packageJson.optionalDependencies ?? {})) {
-        depNames.add(depName);
-      }
-    } catch {
-      return true;
-    }
-  }
-  if (depNames.size === 0) {
-    return false;
-  }
-  return Array.from(depNames).some((depName) => !existsSync(join(packageRoot, "node_modules", ...depName.split("/"), "package.json")));
 }
 
 function logPhase(scope, phase) {
