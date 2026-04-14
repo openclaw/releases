@@ -407,7 +407,7 @@ async function runUpgradeLane(params) {
       env,
       args: updateArgs,
       logPath: join(params.logsDir, "upgrade-update.log"),
-      timeoutMs: 20 * 60 * 1000,
+      timeoutMs: updateTimeoutMs(),
     });
 
     logLanePhase(lane, "update-status");
@@ -574,6 +574,10 @@ async function installPackageSpec(params) {
 
 function installTimeoutMs() {
   return process.platform === "win32" ? 45 * 60 * 1000 : 20 * 60 * 1000;
+}
+
+function updateTimeoutMs() {
+  return process.platform === "win32" ? 30 * 60 * 1000 : 20 * 60 * 1000;
 }
 
 async function runBundledPluginPostinstall(params) {
