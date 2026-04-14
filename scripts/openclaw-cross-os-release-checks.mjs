@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -15,7 +16,7 @@ import {
 } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createServer as createNetServer } from "node:net";
 
 const args = parseArgs(process.argv.slice(2));
@@ -494,8 +495,11 @@ async function installTarballPackage(params) {
   try {
     rmSync(packageRoot, { force: true, recursive: true });
     mkdirSync(packageRootParent, { recursive: true });
-    await runCommand("tar", ["-xzf", params.tgzPath, "-C", stagingDir], {
-      cwd: params.lane.homeDir,
+    const archiveName = basename(params.tgzPath);
+    const stagingArchivePath = join(stagingDir, archiveName);
+    copyFileSync(params.tgzPath, stagingArchivePath);
+    await runCommand("tar", ["-xzf", archiveName], {
+      cwd: stagingDir,
       env: params.env,
       logPath: params.logPath,
       timeoutMs: 5 * 60 * 1000,
