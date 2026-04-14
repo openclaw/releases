@@ -377,7 +377,7 @@ async function runUpgradeLane(params) {
   try {
     const env = buildLaneEnv(lane, params.providerConfig, params.providerSecretValue);
     logLanePhase(lane, "install-baseline");
-    if (process.platform === "win32" && params.baselineSpec) {
+    if (!params.baselineTgz && params.baselineSpec) {
       await installPackageSpec({
         lane,
         env,
