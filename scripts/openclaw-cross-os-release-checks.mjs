@@ -294,9 +294,18 @@ async function runFreshLane(params) {
       tgzPath: params.build.candidateTgz,
       env,
       logPath: join(params.logsDir, "fresh-install.log"),
+      restoreBundledPluginRuntimeDeps: false,
     });
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
+    if (shouldRestoreProviderRuntimeDeps({ lane, providerConfig: params.providerConfig })) {
+      logLanePhase(lane, "restore-provider-runtime-deps");
+      await runBundledPluginPostinstall({
+        lane,
+        env,
+        logPath: join(params.logsDir, "fresh-install.log"),
+      });
+    }
 
     logLanePhase(lane, "onboard");
     await runOnboard({
@@ -405,11 +414,13 @@ async function runUpgradeLane(params) {
       timeoutMs: 2 * 60 * 1000,
     });
     logLanePhase(lane, "restore-bundled-plugin-runtime-deps");
-    await runBundledPluginPostinstall({
-      lane,
-      env,
-      logPath: join(params.logsDir, "upgrade-bundled-plugin-postinstall.log"),
-    });
+    if (shouldRestoreProviderRuntimeDeps({ lane, providerConfig: params.providerConfig })) {
+      await runBundledPluginPostinstall({
+        lane,
+        env,
+        logPath: join(params.logsDir, "upgrade-bundled-plugin-postinstall.log"),
+      });
+    }
 
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
@@ -1358,6 +1369,30 @@ function resolveCommandPath(command) {
 
 function shellEscapeForSh(value) {
   return value.replace(/'/gu, `'\"'\"'`);
+}
+
+function shouldRestoreProviderRuntimeDeps(params) {
+  const providerDir = join(installedPackageRoot(params.lane.prefixDir), "dist", "extensions", params.providerConfig.extensionId);
+  const providerPackageJsonPath = join(providerDir, "package.json");
+  if (!existsSync(providerPackageJsonPath)) {
+    return true;
+  }
+  let providerPackageJson;
+  try {
+    providerPackageJson = JSON.parse(readFileSync(providerPackageJsonPath, "utf8"));
+  } catch {
+    return true;
+  }
+  const runtimeDeps = {
+    ...(providerPackageJson.dependencies ?? {}),
+    ...(providerPackageJson.optionalDependencies ?? {}),
+  };
+  const depNames = Object.keys(runtimeDeps);
+  if (depNames.length === 0) {
+    return false;
+  }
+  const packageRoot = installedPackageRoot(params.lane.prefixDir);
+  return depNames.some((depName) => !existsSync(join(packageRoot, "node_modules", ...depName.split("/"), "package.json")));
 }
 
 function logPhase(scope, phase) {
