@@ -4,13 +4,11 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import {
   chmodSync,
-  copyFileSync,
   createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -180,6 +178,7 @@ if (overallFailed) {
 }
 
 async function prepareCandidate(params) {
+  logPhase("prepare", "resolve-source-sha");
   const packageJsonPath = join(params.sourceDir, "package.json");
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
   const hasUiBuildScript = typeof packageJson.scripts?.["ui:build"] === "string";
@@ -197,6 +196,7 @@ async function prepareCandidate(params) {
     NODE_OPTIONS: "--max-old-space-size=6144",
   };
 
+  logPhase("prepare", "pnpm-install");
   await runCommand(pnpmCommand(), ["install", "--frozen-lockfile"], {
     cwd: params.sourceDir,
     env: buildEnv,
@@ -204,6 +204,7 @@ async function prepareCandidate(params) {
     timeoutMs: 45 * 60 * 1000,
   });
 
+  logPhase("prepare", "pnpm-build");
   await runCommand(pnpmCommand(), ["build"], {
     cwd: params.sourceDir,
     env: buildEnv,
@@ -212,6 +213,7 @@ async function prepareCandidate(params) {
   });
 
   if (!hasControlUiBundle(controlUiIndexPath, controlUiAssetsPath) && hasUiBuildScript) {
+    logPhase("prepare", "pnpm-ui-build");
     await runCommand(pnpmCommand(), ["ui:build"], {
       cwd: params.sourceDir,
       env: buildEnv,
@@ -223,6 +225,7 @@ async function prepareCandidate(params) {
   const packDir = join(outputDir, "package");
   mkdirSync(packDir, { recursive: true });
   const packJsonPath = join(packDir, "pack.json");
+  logPhase("prepare", "npm-pack");
   const packResult = await runCommand(npmCommand(), ["pack", "--ignore-scripts", "--json", "--pack-destination", packDir], {
     cwd: params.sourceDir,
     logPath: join(params.logsDir, "npm-pack.log"),
@@ -282,6 +285,7 @@ async function runFreshLane(params) {
   const cleanup = [];
   try {
     const env = buildLaneEnv(lane, params.providerConfig, params.providerSecretValue);
+    logLanePhase(lane, "install-candidate");
     await installTarballPackage({
       lane,
       env,
@@ -292,6 +296,7 @@ async function runFreshLane(params) {
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
 
+    logLanePhase(lane, "onboard");
     await runOnboard({
       lane,
       env,
@@ -299,6 +304,7 @@ async function runFreshLane(params) {
       logPath: join(params.logsDir, "fresh-onboard.log"),
     });
 
+    logLanePhase(lane, "start-gateway");
     const gateway = await startGateway({
       lane,
       env,
@@ -306,17 +312,20 @@ async function runFreshLane(params) {
     });
     cleanup.push(() => stopGateway(gateway));
 
+    logLanePhase(lane, "wait-gateway");
     await waitForGateway({
       lane,
       env,
       logPath: join(params.logsDir, "fresh-gateway-status.log"),
     });
 
+    logLanePhase(lane, "dashboard");
     await runDashboardSmoke({
       lane,
       logPath: join(params.logsDir, "fresh-dashboard.log"),
     });
 
+    logLanePhase(lane, "models-set");
     await runModelsSet({
       lane,
       env,
@@ -324,6 +333,7 @@ async function runFreshLane(params) {
       logPath: join(params.logsDir, "fresh-models-set.log"),
     });
 
+    logLanePhase(lane, "agent-turn");
     const agent = await runAgentTurn({
       lane,
       env,
@@ -355,6 +365,7 @@ async function runUpgradeLane(params) {
   const cleanup = [];
   try {
     const env = buildLaneEnv(lane, params.providerConfig, params.providerSecretValue);
+    logLanePhase(lane, "install-baseline");
     await installTarballPackage({
       lane,
       env,
@@ -365,6 +376,7 @@ async function runUpgradeLane(params) {
 
     const baseline = readInstalledMetadata(lane.prefixDir);
 
+    logLanePhase(lane, "update");
     await runOpenClaw({
       lane,
       env,
@@ -373,6 +385,7 @@ async function runUpgradeLane(params) {
       timeoutMs: 20 * 60 * 1000,
     });
 
+    logLanePhase(lane, "update-status");
     await runOpenClaw({
       lane,
       env,
@@ -380,6 +393,7 @@ async function runUpgradeLane(params) {
       logPath: join(params.logsDir, "upgrade-update-status.log"),
       timeoutMs: 2 * 60 * 1000,
     });
+    logLanePhase(lane, "restore-bundled-plugin-runtime-deps");
     await runBundledPluginPostinstall({
       lane,
       env,
@@ -389,6 +403,7 @@ async function runUpgradeLane(params) {
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
 
+    logLanePhase(lane, "onboard");
     await runOnboard({
       lane,
       env,
@@ -396,6 +411,7 @@ async function runUpgradeLane(params) {
       logPath: join(params.logsDir, "upgrade-onboard.log"),
     });
 
+    logLanePhase(lane, "start-gateway");
     const gateway = await startGateway({
       lane,
       env,
@@ -403,17 +419,20 @@ async function runUpgradeLane(params) {
     });
     cleanup.push(() => stopGateway(gateway));
 
+    logLanePhase(lane, "wait-gateway");
     await waitForGateway({
       lane,
       env,
       logPath: join(params.logsDir, "upgrade-gateway-status.log"),
     });
 
+    logLanePhase(lane, "dashboard");
     await runDashboardSmoke({
       lane,
       logPath: join(params.logsDir, "upgrade-dashboard.log"),
     });
 
+    logLanePhase(lane, "models-set");
     await runModelsSet({
       lane,
       env,
@@ -421,6 +440,7 @@ async function runUpgradeLane(params) {
       logPath: join(params.logsDir, "upgrade-models-set.log"),
     });
 
+    logLanePhase(lane, "agent-turn");
     const agent = await runAgentTurn({
       lane,
       env,
@@ -484,69 +504,40 @@ function buildLaneEnv(lane, providerMeta, providerSecretValue) {
 
 async function installTarballPackage(params) {
   const packageRoot = installedPackageRoot(params.lane.prefixDir);
-  const packageRootParent = dirname(packageRoot);
-  const stagingDir = mkdtempSync(join(tmpdir(), `openclaw-install-${params.lane.name}-`));
-  try {
-    rmSync(packageRoot, { force: true, recursive: true });
-    mkdirSync(packageRootParent, { recursive: true });
-    const archiveName = basename(params.tgzPath);
-    const stagingArchivePath = join(stagingDir, archiveName);
-    copyFileSync(params.tgzPath, stagingArchivePath);
-    await runCommand("tar", ["-xzf", archiveName], {
-      cwd: stagingDir,
-      env: params.env,
-      logPath: params.logPath,
-      timeoutMs: 5 * 60 * 1000,
-    });
-    const extractedPackageDir = join(stagingDir, "package");
-    if (!existsSync(extractedPackageDir)) {
-      throw new Error(`Extracted package directory missing after untar: ${extractedPackageDir}`);
-    }
-    renameSync(extractedPackageDir, packageRoot);
-    await installPackageRuntimeDeps({
-      cwd: packageRoot,
-      env: params.env,
-      logPath: params.logPath,
-    });
-    if (params.restoreBundledPluginRuntimeDeps !== false) {
-      await runBundledPluginPostinstall({
-        lane: params.lane,
-        env: params.env,
-        logPath: params.logPath,
-      });
-    }
-  } finally {
-    rmSync(stagingDir, { force: true, recursive: true });
-  }
-}
-
-async function installPackageRuntimeDeps(params) {
   const installEnv = {
     ...params.env,
+    npm_config_global: "true",
+    npm_config_location: "global",
+    npm_config_prefix: params.lane.prefixDir,
   };
-  delete installEnv.NPM_CONFIG_PREFIX;
-  delete installEnv.npm_config_global;
-  delete installEnv.npm_config_location;
-  delete installEnv.npm_config_prefix;
-
+  rmSync(packageRoot, { force: true, recursive: true });
   await runCommand(
     npmCommand(),
     [
       "install",
+      "-g",
+      params.tgzPath,
       "--omit=dev",
-      "--no-save",
-      "--package-lock=false",
-      "--legacy-peer-deps",
       "--no-fund",
       "--no-audit",
+      "--loglevel=error",
+      "--package-lock=false",
+      "--legacy-peer-deps",
     ],
     {
-      cwd: params.cwd,
+      cwd: params.lane.homeDir,
       env: installEnv,
       logPath: params.logPath,
       timeoutMs: 20 * 60 * 1000,
     },
   );
+  if (params.restoreBundledPluginRuntimeDeps !== false) {
+    await runBundledPluginPostinstall({
+      lane: params.lane,
+      env: params.env,
+      logPath: params.logPath,
+    });
+  }
 }
 
 async function runBundledPluginPostinstall(params) {
@@ -1298,6 +1289,14 @@ function resolveCommandPath(command) {
 
 function shellEscapeForSh(value) {
   return value.replace(/'/gu, `'\"'\"'`);
+}
+
+function logPhase(scope, phase) {
+  process.stdout.write(`[release-checks] ${scope}: ${phase}\n`);
+}
+
+function logLanePhase(lane, phase) {
+  logPhase(`lane.${lane.name}`, phase);
 }
 
 function trimForSummary(value) {
