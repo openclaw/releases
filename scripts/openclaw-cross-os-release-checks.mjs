@@ -4,11 +4,13 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -355,7 +357,7 @@ async function runFreshLane(params) {
 }
 
 async function runUpgradeLane(params) {
-  if (!params.baselineTgz) {
+  if (!params.baselineTgz && !params.baselineSpec) {
     throw new Error("Missing required --baseline-tgz argument for upgrade mode.");
   }
   if (!params.candidateUrl) {
@@ -366,13 +368,22 @@ async function runUpgradeLane(params) {
   try {
     const env = buildLaneEnv(lane, params.providerConfig, params.providerSecretValue);
     logLanePhase(lane, "install-baseline");
-    await installTarballPackage({
-      lane,
-      env,
-      tgzPath: params.baselineTgz,
-      logPath: join(params.logsDir, "upgrade-install-baseline.log"),
-      restoreBundledPluginRuntimeDeps: false,
-    });
+    if (process.platform === "win32" && params.baselineSpec) {
+      await installPackageSpec({
+        lane,
+        env,
+        packageSpec: params.baselineSpec,
+        logPath: join(params.logsDir, "upgrade-install-baseline.log"),
+      });
+    } else {
+      await installTarballPackage({
+        lane,
+        env,
+        tgzPath: params.baselineTgz,
+        logPath: join(params.logsDir, "upgrade-install-baseline.log"),
+        restoreBundledPluginRuntimeDeps: false,
+      });
+    }
 
     const baseline = readInstalledMetadata(lane.prefixDir);
 
@@ -504,40 +515,98 @@ function buildLaneEnv(lane, providerMeta, providerSecretValue) {
 
 async function installTarballPackage(params) {
   const packageRoot = installedPackageRoot(params.lane.prefixDir);
+  const packageRootParent = dirname(packageRoot);
+  const stagingDir = mkdtempSync(join(tmpdir(), `openclaw-install-${params.lane.name}-`));
+  try {
+    rmSync(packageRoot, { force: true, recursive: true });
+    mkdirSync(packageRootParent, { recursive: true });
+    const archiveName = basename(params.tgzPath);
+    const stagingArchivePath = join(stagingDir, archiveName);
+    copyFileSync(params.tgzPath, stagingArchivePath);
+    await runCommand("tar", ["-xzf", archiveName], {
+      cwd: stagingDir,
+      env: params.env,
+      logPath: params.logPath,
+      timeoutMs: 5 * 60 * 1000,
+    });
+    const extractedPackageDir = join(stagingDir, "package");
+    if (!existsSync(extractedPackageDir)) {
+      throw new Error(`Extracted package directory missing after untar: ${extractedPackageDir}`);
+    }
+    renameSync(extractedPackageDir, packageRoot);
+    await installPackageRuntimeDeps({
+      cwd: packageRoot,
+      env: params.env,
+      logPath: params.logPath,
+      timeoutMs: 20 * 60 * 1000,
+    });
+    if (params.restoreBundledPluginRuntimeDeps !== false) {
+      await runBundledPluginPostinstall({
+        lane: params.lane,
+        env: params.env,
+        logPath: params.logPath,
+      });
+    }
+  } finally {
+    rmSync(stagingDir, { force: true, recursive: true });
+  }
+}
+
+async function installPackageRuntimeDeps(params) {
+  const installEnv = {
+    ...params.env,
+  };
+  delete installEnv.NPM_CONFIG_PREFIX;
+  delete installEnv.npm_config_global;
+  delete installEnv.npm_config_location;
+  delete installEnv.npm_config_prefix;
+
+  await runCommand(
+    npmCommand(),
+    [
+      "install",
+      "--omit=dev",
+      "--no-save",
+      "--package-lock=false",
+      "--legacy-peer-deps",
+      "--no-fund",
+      "--no-audit",
+    ],
+    {
+      cwd: params.cwd,
+      env: installEnv,
+      logPath: params.logPath,
+      timeoutMs: params.timeoutMs ?? 20 * 60 * 1000,
+    },
+  );
+}
+
+async function installPackageSpec(params) {
   const installEnv = {
     ...params.env,
     npm_config_global: "true",
     npm_config_location: "global",
     npm_config_prefix: params.lane.prefixDir,
   };
-  rmSync(packageRoot, { force: true, recursive: true });
+  rmSync(installedPackageRoot(params.lane.prefixDir), { force: true, recursive: true });
   await runCommand(
     npmCommand(),
     [
       "install",
       "-g",
-      params.tgzPath,
+      params.packageSpec,
       "--omit=dev",
       "--no-fund",
       "--no-audit",
-      "--loglevel=error",
-      "--package-lock=false",
-      "--legacy-peer-deps",
+      "--loglevel=notice",
     ],
     {
       cwd: params.lane.homeDir,
       env: installEnv,
       logPath: params.logPath,
-      timeoutMs: 20 * 60 * 1000,
+      timeoutMs: params.timeoutMs ?? 20 * 60 * 1000,
     },
   );
-  if (params.restoreBundledPluginRuntimeDeps !== false) {
-    await runBundledPluginPostinstall({
-      lane: params.lane,
-      env: params.env,
-      logPath: params.logPath,
-    });
-  }
 }
 
 async function runBundledPluginPostinstall(params) {
