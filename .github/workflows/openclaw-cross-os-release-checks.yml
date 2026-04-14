@@ -65,6 +65,7 @@ jobs:
       baseline_spec: ${{ steps.baseline.outputs.value }}
       candidate_file_name: ${{ steps.candidate_metadata.outputs.file_name }}
       candidate_version: ${{ steps.candidate_metadata.outputs.version }}
+      lane_matrix: ${{ steps.lane_matrix.outputs.value }}
       matrix: ${{ steps.matrix.outputs.value }}
       source_sha: ${{ steps.candidate_metadata.outputs.source_sha }}
     steps:
@@ -209,40 +210,51 @@ jobs:
         run: |
           node <<'NODE' >>"$GITHUB_OUTPUT"
           const pick = (...values) => values.find((value) => typeof value === "string" && value.trim().length > 0)?.trim();
-          const matrix = {
-            include: [
-              {
-                os_id: "ubuntu",
-                display_name: "Linux",
-                runner: pick(process.env.INPUT_UBUNTU_RUNNER, process.env.VAR_UBUNTU_RUNNER, "ubuntu-latest"),
-                artifact_name: "linux",
-              },
-              {
-                os_id: "windows",
-                display_name: "Windows",
-                runner: pick(process.env.INPUT_WINDOWS_RUNNER, process.env.VAR_WINDOWS_RUNNER, "windows-latest"),
-                artifact_name: "windows",
-              },
-              {
-                os_id: "macos",
-                display_name: "macOS",
-                runner: pick(process.env.INPUT_MACOS_RUNNER, process.env.VAR_MACOS_RUNNER, "macos-latest-xlarge"),
-                artifact_name: "macos",
-              },
-            ],
-          };
+          const matrix = [
+            {
+              os_id: "ubuntu",
+              display_name: "Linux",
+              runner: pick(process.env.INPUT_UBUNTU_RUNNER, process.env.VAR_UBUNTU_RUNNER, "ubuntu-latest"),
+              artifact_name: "linux",
+            },
+            {
+              os_id: "windows",
+              display_name: "Windows",
+              runner: pick(process.env.INPUT_WINDOWS_RUNNER, process.env.VAR_WINDOWS_RUNNER, "windows-latest"),
+              artifact_name: "windows",
+            },
+            {
+              os_id: "macos",
+              display_name: "macOS",
+              runner: pick(process.env.INPUT_MACOS_RUNNER, process.env.VAR_MACOS_RUNNER, "macos-latest-xlarge"),
+              artifact_name: "macos",
+            },
+          ];
           process.stdout.write(`value=${JSON.stringify(matrix)}\n`);
           NODE
 
+      - name: Resolve lane matrix
+        id: lane_matrix
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+        run: |
+          node <<'NODE' >>"$GITHUB_OUTPUT"
+          const mode = process.env.INPUT_MODE ?? "both";
+          const lanes = mode === "both" ? ["fresh", "upgrade"] : [mode];
+          process.stdout.write(`value=${JSON.stringify(lanes)}\n`);
+          NODE
+
   cross_os_release_checks:
-    name: "${{ matrix.display_name }}"
+    name: "${{ matrix.os.display_name }} / ${{ matrix.lane }}"
     needs: prepare
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
-    runs-on: ${{ matrix.runner }}
+      matrix:
+        os: ${{ fromJson(needs.prepare.outputs.matrix) }}
+        lane: ${{ fromJson(needs.prepare.outputs.lane_matrix) }}
+    runs-on: ${{ matrix.os.runner }}
     timeout-minutes: 120
     steps:
       - name: Checkout private workflow repo
@@ -269,7 +281,7 @@ jobs:
           path: ${{ runner.temp }}/openclaw-cross-os-release-checks/candidate
 
       - name: Download baseline artifact
-        if: ${{ inputs.mode != 'fresh' }}
+        if: ${{ matrix.lane == 'upgrade' }}
         uses: actions/download-artifact@v8
         with:
           name: openclaw-cross-os-release-checks-baseline-${{ github.run_id }}
@@ -281,8 +293,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
-          OPENCLAW_RELEASE_CHECK_OS: ${{ matrix.os_id }}
-          OPENCLAW_RELEASE_CHECK_RUNNER: ${{ matrix.runner }}
+          OPENCLAW_RELEASE_CHECK_OS: ${{ matrix.os.os_id }}
+          OPENCLAW_RELEASE_CHECK_RUNNER: ${{ matrix.os.runner }}
         run: |
           node scripts/openclaw-cross-os-release-checks.mjs \
             --candidate-tgz "$RUNNER_TEMP/openclaw-cross-os-release-checks/candidate/${{ needs.prepare.outputs.candidate_file_name }}" \
@@ -291,14 +303,14 @@ jobs:
             --baseline-spec "${{ needs.prepare.outputs.baseline_spec }}" \
             --baseline-tgz "$RUNNER_TEMP/openclaw-cross-os-release-checks/baseline/${{ needs.prepare.outputs.baseline_file_name }}" \
             --provider "${{ inputs.provider }}" \
-            --mode "${{ inputs.mode }}" \
-            --output-dir "$RUNNER_TEMP/openclaw-cross-os-release-checks/${{ matrix.artifact_name }}"
+            --mode "${{ matrix.lane }}" \
+            --output-dir "$RUNNER_TEMP/openclaw-cross-os-release-checks/${{ matrix.os.artifact_name }}-${{ matrix.lane }}"
 
       - name: Summarize release checks
         if: always()
         shell: bash
         env:
-          SUMMARY_PATH: ${{ runner.temp }}/openclaw-cross-os-release-checks/${{ matrix.artifact_name }}/summary.md
+          SUMMARY_PATH: ${{ runner.temp }}/openclaw-cross-os-release-checks/${{ matrix.os.artifact_name }}-${{ matrix.lane }}/summary.md
         run: |
           if [[ -f "${SUMMARY_PATH}" ]]; then
             cat "${SUMMARY_PATH}" >> "$GITHUB_STEP_SUMMARY"
@@ -310,6 +322,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: openclaw-cross-os-release-checks-${{ matrix.artifact_name }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/openclaw-cross-os-release-checks/${{ matrix.artifact_name }}
+          name: openclaw-cross-os-release-checks-${{ matrix.os.artifact_name }}-${{ matrix.lane }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/openclaw-cross-os-release-checks/${{ matrix.os.artifact_name }}-${{ matrix.lane }}
           if-no-files-found: error
