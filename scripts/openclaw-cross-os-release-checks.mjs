@@ -752,6 +752,9 @@ async function waitForGateway(params) {
 }
 
 async function resolveGatewayStatusArgs(lane, env, logPath) {
+  if (process.platform === "win32") {
+    return ["gateway", "status", "--deep", "--require-rpc", "--timeout", "5000"];
+  }
   const help = await runOpenClaw({
     lane,
     env,
