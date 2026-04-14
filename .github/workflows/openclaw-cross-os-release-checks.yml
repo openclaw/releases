@@ -61,6 +61,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      baseline_file_name: ${{ steps.baseline_metadata.outputs.file_name }}
       baseline_spec: ${{ steps.baseline.outputs.value }}
       candidate_file_name: ${{ steps.candidate_metadata.outputs.file_name }}
       candidate_version: ${{ steps.candidate_metadata.outputs.version }}
@@ -142,6 +143,14 @@ jobs:
           BASELINE_VERSION="$(npm view openclaw@latest version)"
           echo "value=openclaw@${BASELINE_VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Pack baseline artifact
+        env:
+          BASELINE_SPEC: ${{ steps.baseline.outputs.value }}
+          OUTPUT_DIR: ${{ runner.temp }}/openclaw-cross-os-release-checks/prepare/baseline
+        run: |
+          mkdir -p "${OUTPUT_DIR}"
+          npm pack --ignore-scripts --json "${BASELINE_SPEC}" --pack-destination "${OUTPUT_DIR}" > "${OUTPUT_DIR}/pack.json"
+
       - name: Capture candidate metadata
         id: candidate_metadata
         env:
@@ -155,11 +164,33 @@ jobs:
           process.stdout.write(`source_sha=${payload.sourceSha}\n`);
           NODE
 
+      - name: Capture baseline metadata
+        id: baseline_metadata
+        env:
+          BASELINE_PACK_JSON: ${{ runner.temp }}/openclaw-cross-os-release-checks/prepare/baseline/pack.json
+        run: |
+          node <<'NODE' >>"$GITHUB_OUTPUT"
+          const fs = require("node:fs");
+          const payload = JSON.parse(fs.readFileSync(process.env.BASELINE_PACK_JSON, "utf8"));
+          const entry = Array.isArray(payload) ? payload.at(-1) : null;
+          if (!entry?.filename) {
+            throw new Error("Baseline npm pack did not produce a filename.");
+          }
+          process.stdout.write(`file_name=${entry.filename}\n`);
+          NODE
+
       - name: Upload candidate artifact
         uses: actions/upload-artifact@v7
         with:
           name: openclaw-cross-os-release-checks-candidate-${{ github.run_id }}
           path: ${{ runner.temp }}/openclaw-cross-os-release-checks/prepare/package/${{ steps.candidate_metadata.outputs.file_name }}
+          if-no-files-found: error
+
+      - name: Upload baseline artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: openclaw-cross-os-release-checks-baseline-${{ github.run_id }}
+          path: ${{ runner.temp }}/openclaw-cross-os-release-checks/prepare/baseline/${{ steps.baseline_metadata.outputs.file_name }}
           if-no-files-found: error
 
       - name: Resolve runner matrix
@@ -227,6 +258,12 @@ jobs:
           name: openclaw-cross-os-release-checks-candidate-${{ github.run_id }}
           path: ${{ runner.temp }}/openclaw-cross-os-release-checks/candidate
 
+      - name: Download baseline artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: openclaw-cross-os-release-checks-baseline-${{ github.run_id }}
+          path: ${{ runner.temp }}/openclaw-cross-os-release-checks/baseline
+
       - name: Run cross-OS release checks
         shell: bash
         env:
@@ -241,6 +278,7 @@ jobs:
             --candidate-version "${{ needs.prepare.outputs.candidate_version }}" \
             --source-sha "${{ needs.prepare.outputs.source_sha }}" \
             --baseline-spec "${{ needs.prepare.outputs.baseline_spec }}" \
+            --baseline-tgz "$RUNNER_TEMP/openclaw-cross-os-release-checks/baseline/${{ needs.prepare.outputs.baseline_file_name }}" \
             --provider "${{ inputs.provider }}" \
             --mode "${{ inputs.mode }}" \
             --output-dir "$RUNNER_TEMP/openclaw-cross-os-release-checks/${{ matrix.artifact_name }}"

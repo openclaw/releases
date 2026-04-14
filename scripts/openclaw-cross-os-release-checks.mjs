@@ -2,7 +2,17 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -16,6 +26,7 @@ const provider = args["provider"]?.trim() || "";
 const mode = args["mode"] ?? "both";
 const previousVersion = args["previous-version"]?.trim() || "";
 const baselineSpec = args["baseline-spec"]?.trim() || (previousVersion ? `openclaw@${previousVersion}` : "openclaw@latest");
+const providedBaselineTgz = args["baseline-tgz"]?.trim() ? resolve(args["baseline-tgz"].trim()) : "";
 const providedCandidateTgz = args["candidate-tgz"]?.trim() ? resolve(args["candidate-tgz"].trim()) : "";
 const providedCandidateVersion = args["candidate-version"]?.trim() || "";
 const providedSourceSha = args["source-sha"]?.trim() || "";
@@ -103,36 +114,39 @@ try {
   summary.sourceSha = build.sourceSha;
   summary.candidateVersion = build.candidateVersion;
   summary.candidateTgz = build.candidateTgz;
+  if (mode === "fresh" || mode === "both") {
+    try {
+      summary.fresh = await runFreshLane({
+        build,
+        logsDir,
+        providerConfig: selectedProvider,
+        providerSecretValue,
+      });
+    } catch (error) {
+      overallFailed = true;
+      summary.fresh = {
+        status: "fail",
+        error: formatError(error),
+      };
+    }
+  }
 
-  const tgzServer = await startStaticFileServer({
-    filePath: build.candidateTgz,
-    logPath: join(logsDir, "candidate-http-server.log"),
-  });
+  const tgzServer =
+    mode === "upgrade" || mode === "both"
+      ? await startStaticFileServer({
+          filePath: build.candidateTgz,
+          logPath: join(logsDir, "candidate-http-server.log"),
+        })
+      : null;
 
   try {
-    if (mode === "fresh" || mode === "both") {
-      try {
-        summary.fresh = await runFreshLane({
-          build,
-          logsDir,
-          providerConfig: selectedProvider,
-          providerSecretValue,
-        });
-      } catch (error) {
-        overallFailed = true;
-        summary.fresh = {
-          status: "fail",
-          error: formatError(error),
-        };
-      }
-    }
-
     if (mode === "upgrade" || mode === "both") {
       try {
         summary.upgrade = await runUpgradeLane({
-          build,
           baselineSpec,
-          candidateUrl: tgzServer.url,
+          baselineTgz: providedBaselineTgz,
+          build,
+          candidateUrl: tgzServer?.url ?? "",
           logsDir,
           providerConfig: selectedProvider,
           providerSecretValue,
@@ -146,7 +160,9 @@ try {
       }
     }
   } finally {
-    await tgzServer.close();
+    if (tgzServer) {
+      await tgzServer.close();
+    }
   }
 } catch (error) {
   overallFailed = true;
@@ -265,10 +281,11 @@ async function runFreshLane(params) {
   const cleanup = [];
   try {
     const env = buildLaneEnv(lane, params.providerConfig, params.providerSecretValue);
-    await installPackage({
-      spec: params.build.candidateTgz,
+    await installTarballPackage({
+      lane,
       env,
-      cwd: lane.homeDir,
+      tgzPath: params.build.candidateTgz,
+      env,
       logPath: join(params.logsDir, "fresh-install.log"),
     });
     const installed = readInstalledMetadata(lane.prefixDir);
@@ -333,14 +350,20 @@ async function runFreshLane(params) {
 }
 
 async function runUpgradeLane(params) {
+  if (!params.baselineTgz) {
+    throw new Error("Missing required --baseline-tgz argument for upgrade mode.");
+  }
+  if (!params.candidateUrl) {
+    throw new Error("Missing candidate package URL for upgrade mode.");
+  }
   const lane = createLaneState("upgrade");
   const cleanup = [];
   try {
     const env = buildLaneEnv(lane, params.providerConfig, params.providerSecretValue);
-    await installPackage({
-      spec: params.baselineSpec,
+    await installTarballPackage({
+      lane,
       env,
-      cwd: lane.homeDir,
+      tgzPath: params.baselineTgz,
       logPath: join(params.logsDir, "upgrade-install-baseline.log"),
     });
 
@@ -464,13 +487,109 @@ function buildLaneEnv(lane, providerMeta, providerSecretValue) {
   };
 }
 
-async function installPackage(params) {
-  await runCommand(npmCommand(), ["install", "-g", params.spec, "--no-fund", "--no-audit"], {
-    cwd: params.cwd,
-    env: params.env,
-    logPath: params.logPath,
-    timeoutMs: 20 * 60 * 1000,
+async function installTarballPackage(params) {
+  const packageRoot = installedPackageRoot(params.lane.prefixDir);
+  const packageRootParent = dirname(packageRoot);
+  const stagingDir = mkdtempSync(join(tmpdir(), `openclaw-install-${params.lane.name}-`));
+  try {
+    rmSync(packageRoot, { force: true, recursive: true });
+    mkdirSync(packageRootParent, { recursive: true });
+    await runCommand("tar", ["-xzf", params.tgzPath, "-C", stagingDir], {
+      cwd: params.lane.homeDir,
+      env: params.env,
+      logPath: params.logPath,
+      timeoutMs: 5 * 60 * 1000,
+    });
+    const extractedPackageDir = join(stagingDir, "package");
+    if (!existsSync(extractedPackageDir)) {
+      throw new Error(`Extracted package directory missing after untar: ${extractedPackageDir}`);
+    }
+    renameSync(extractedPackageDir, packageRoot);
+    await installPackageRuntimeDeps({
+      cwd: packageRoot,
+      env: params.env,
+      logPath: params.logPath,
+    });
+  } finally {
+    rmSync(stagingDir, { force: true, recursive: true });
+  }
+}
+
+async function installPackageRuntimeDeps(params) {
+  const installEnv = {
+    ...params.env,
+  };
+  delete installEnv.NPM_CONFIG_PREFIX;
+  delete installEnv.npm_config_global;
+  delete installEnv.npm_config_location;
+  delete installEnv.npm_config_prefix;
+
+  await runCommand(
+    npmCommand(),
+    [
+      "install",
+      "--omit=dev",
+      "--no-save",
+      "--package-lock=false",
+      "--legacy-peer-deps",
+      "--no-fund",
+      "--no-audit",
+    ],
+    {
+      cwd: params.cwd,
+      env: installEnv,
+      logPath: params.logPath,
+      timeoutMs: 20 * 60 * 1000,
+    },
+  );
+}
+
+async function installProviderRuntimeDeps(params) {
+  const packageRoot = installedPackageRoot(params.lane.prefixDir);
+  const extensionPackageJsonPath = join(
+    packageRoot,
+    "dist",
+    "extensions",
+    params.providerConfig.extensionId,
+    "package.json",
+  );
+  if (!existsSync(extensionPackageJsonPath)) {
+    return;
+  }
+  const extensionPackageJson = JSON.parse(readFileSync(extensionPackageJsonPath, "utf8"));
+  const dependencyEntries = Object.entries({
+    ...(extensionPackageJson.dependencies ?? {}),
+    ...(extensionPackageJson.optionalDependencies ?? {}),
   });
+  if (dependencyEntries.length === 0) {
+    return;
+  }
+
+  const installEnv = {
+    ...params.env,
+  };
+  delete installEnv.NPM_CONFIG_PREFIX;
+  delete installEnv.npm_config_global;
+  delete installEnv.npm_config_location;
+  delete installEnv.npm_config_prefix;
+
+  await runCommand(
+    npmCommand(),
+    [
+      "install",
+      "--omit=dev",
+      "--no-save",
+      "--package-lock=false",
+      "--legacy-peer-deps",
+      ...dependencyEntries.map(([name, version]) => `${name}@${version}`),
+    ],
+    {
+      cwd: packageRoot,
+      env: installEnv,
+      logPath: params.logPath,
+      timeoutMs: 10 * 60 * 1000,
+    },
+  );
 }
 
 function ensureLocalNpmShim(lane) {
@@ -607,54 +726,6 @@ async function runAgentTurn(params) {
     throw new Error("Agent output did not contain the expected OK marker.");
   }
   return result;
-}
-
-async function installProviderRuntimeDeps(params) {
-  const packageRoot = installedPackageRoot(params.lane.prefixDir);
-  const extensionPackageJsonPath = join(
-    packageRoot,
-    "dist",
-    "extensions",
-    params.providerConfig.extensionId,
-    "package.json",
-  );
-  if (!existsSync(extensionPackageJsonPath)) {
-    return;
-  }
-  const extensionPackageJson = JSON.parse(readFileSync(extensionPackageJsonPath, "utf8"));
-  const dependencyEntries = Object.entries({
-    ...(extensionPackageJson.dependencies ?? {}),
-    ...(extensionPackageJson.optionalDependencies ?? {}),
-  });
-  if (dependencyEntries.length === 0) {
-    return;
-  }
-
-  const installEnv = {
-    ...params.env,
-  };
-  delete installEnv.NPM_CONFIG_PREFIX;
-  delete installEnv.npm_config_global;
-  delete installEnv.npm_config_location;
-  delete installEnv.npm_config_prefix;
-
-  await runCommand(
-    npmCommand(),
-    [
-      "install",
-      "--omit=dev",
-      "--no-save",
-      "--package-lock=false",
-      "--legacy-peer-deps",
-      ...dependencyEntries.map(([name, version]) => `${name}@${version}`),
-    ],
-    {
-      cwd: packageRoot,
-      env: installEnv,
-      logPath: params.logPath,
-      timeoutMs: 10 * 60 * 1000,
-    },
-  );
 }
 
 async function runDashboardSmoke(params) {
