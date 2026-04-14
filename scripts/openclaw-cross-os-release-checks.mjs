@@ -738,7 +738,7 @@ async function startGateway(params) {
 
 async function waitForGateway(params) {
   if (process.platform === "win32") {
-    return waitForGatewayRpcProbe(params);
+    return waitForGatewayRpcHealth(params);
   }
   const statusArgs = await resolveGatewayStatusArgs(params.lane, params.env, params.logPath);
   const deadline = Date.now() + 90_000;
@@ -765,8 +765,8 @@ async function waitForGateway(params) {
   throw new Error(`Gateway did not become ready on port ${params.lane.gatewayPort}.`);
 }
 
-async function waitForGatewayRpcProbe(params) {
-  const probeArgs = ["gateway", "probe", "--url", `ws://127.0.0.1:${params.lane.gatewayPort}`, "--timeout", "10000", "--json"];
+async function waitForGatewayRpcHealth(params) {
+  const healthArgs = ["health", "--json", "--timeout", "10000"];
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     let result;
@@ -774,7 +774,7 @@ async function waitForGatewayRpcProbe(params) {
       result = await runOpenClaw({
         lane: params.lane,
         env: params.env,
-        args: probeArgs,
+        args: healthArgs,
         logPath: params.logPath,
         timeoutMs: 30_000,
         check: false,
@@ -788,7 +788,7 @@ async function waitForGatewayRpcProbe(params) {
     }
     await sleep(2_000);
   }
-  throw new Error(`Gateway RPC did not become ready on port ${params.lane.gatewayPort}.`);
+  throw new Error(`Gateway health did not become ready on port ${params.lane.gatewayPort}.`);
 }
 
 async function resolveGatewayStatusArgs(lane, env, logPath) {
