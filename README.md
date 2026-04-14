@@ -93,6 +93,9 @@ live in `openclaw/openclaw`.
 - `SPARKLE_PRIVATE_KEY`
 - `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN` (`contents:write` on `openclaw/openclaw`
   is sufficient)
+
+## Required repo secrets for npm dist-tag sync
+
 - `NPM_TOKEN` (used only for `npm dist-tag add`, not for trusted publishing)
 
 ## Required repo secrets for cross-OS runtime checks
@@ -117,7 +120,10 @@ you want to override the workflow defaults without editing the workflow file.
 ## Repo policy
 
 - Workflow changes are code-owned by `@openclaw/openclaw-release-managers`.
-- The `mac-release` environment exists and should hold all real publish secrets.
+- The `mac-release` environment exists and should hold the real mac publish
+  secrets.
+- `NPM_TOKEN` for `.github/workflows/openclaw-npm-dist-tags.yml` is a repo
+  secret, not a `mac-release` environment secret.
 - Real publish runs must be dispatched from this repo's `main` branch.
 
 ## Pending platform protections
