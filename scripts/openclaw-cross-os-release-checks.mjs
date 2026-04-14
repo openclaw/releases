@@ -782,12 +782,60 @@ async function runCommand(command, args, options) {
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let settled = false;
 
+    const clearTimers = () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      if (killWaitTimer) {
+        clearTimeout(killWaitTimer);
+      }
+    };
+
+    const finalize = (callback) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimers();
+      logStream.end();
+      callback();
+    };
+
+    const requestKill = () => {
+      if (process.platform === "win32" && child.pid) {
+        try {
+          const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+            stdio: "ignore",
+            windowsHide: true,
+          });
+          killer.on("error", () => {
+            child.kill();
+          });
+          return;
+        } catch {
+          child.kill();
+          return;
+        }
+      }
+      child.kill(process.platform === "win32" ? undefined : "SIGKILL");
+    };
+
+    let killWaitTimer = null;
     const timer =
       options.timeoutMs && Number.isFinite(options.timeoutMs)
         ? setTimeout(() => {
             timedOut = true;
-            child.kill(process.platform === "win32" ? undefined : "SIGKILL");
+            logStream.write(`${new Date().toISOString()} timeout command=${command} args=${args.join(" ")}\n`);
+            requestKill();
+            killWaitTimer = setTimeout(() => {
+              finalize(() => {
+                rejectPromise(
+                  new Error(`Command timed out and could not be terminated cleanly: ${command} ${args.join(" ")}`),
+                );
+              });
+            }, 15_000);
           }, options.timeoutMs)
         : null;
 
@@ -803,40 +851,34 @@ async function runCommand(command, args, options) {
     });
 
     child.on("error", (error) => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-      logStream.end();
-      rejectPromise(error);
+      finalize(() => rejectPromise(error));
     });
 
     child.on("close", (exitCode) => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-      logStream.end();
-      const result = {
-        exitCode: exitCode ?? 1,
-        stdout,
-        stderr,
-      };
-      if (timedOut) {
-        rejectPromise(
-          new Error(`Command timed out: ${command} ${args.join(" ")}`),
-        );
-        return;
-      }
-      if ((options.check ?? true) && result.exitCode !== 0) {
-        rejectPromise(
-          new Error(
-            `Command failed (${result.exitCode}): ${command} ${args.join(" ")}\n${trimForSummary(
-              `${stdout}\n${stderr}`,
-            )}`,
-          ),
-        );
-        return;
-      }
-      resolvePromise(result);
+      finalize(() => {
+        const result = {
+          exitCode: exitCode ?? 1,
+          stdout,
+          stderr,
+        };
+        if (timedOut) {
+          rejectPromise(
+            new Error(`Command timed out: ${command} ${args.join(" ")}`),
+          );
+          return;
+        }
+        if ((options.check ?? true) && result.exitCode !== 0) {
+          rejectPromise(
+            new Error(
+              `Command failed (${result.exitCode}): ${command} ${args.join(" ")}\n${trimForSummary(
+                `${stdout}\n${stderr}`,
+              )}`,
+            ),
+          );
+          return;
+        }
+        resolvePromise(result);
+      });
     });
   });
 }
