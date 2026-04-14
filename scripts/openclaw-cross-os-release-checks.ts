@@ -721,11 +721,12 @@ async function waitForGateway(params) {
 }
 
 async function waitForGatewayProbe(params) {
+  const probeUrl = resolveLocalGatewayProbeUrl(params.lane, params.env);
   const probeArgs = [
     "gateway",
     "probe",
     "--url",
-    `ws://127.0.0.1:${params.lane.gatewayPort}`,
+    probeUrl,
     "--timeout",
     "30000",
     "--json",
@@ -757,7 +758,25 @@ async function waitForGatewayProbe(params) {
     }
     await sleep(3_000);
   }
-  throw new Error(`Gateway probe did not become ready on port ${params.lane.gatewayPort}.`);
+  throw new Error(`Gateway probe did not become ready at ${probeUrl}.`);
+}
+
+function resolveLocalGatewayProbeUrl(lane, env) {
+  const configPath =
+    typeof env?.OPENCLAW_CONFIG_PATH === "string" && env.OPENCLAW_CONFIG_PATH.trim()
+      ? env.OPENCLAW_CONFIG_PATH
+      : join(lane.stateDir, "openclaw.json");
+  const scheme = isLocalGatewayTlsEnabled(configPath) ? "wss" : "ws";
+  return `${scheme}://127.0.0.1:${lane.gatewayPort}`;
+}
+
+function isLocalGatewayTlsEnabled(configPath) {
+  try {
+    const parsed = JSON.parse(readFileSync(configPath, "utf8"));
+    return parsed?.gateway?.tls?.enabled === true;
+  } catch {
+    return false;
+  }
 }
 
 async function resolveGatewayStatusArgs(lane, env, logPath) {
