@@ -402,7 +402,7 @@ async function runUpgradeLane(params) {
 
     logLanePhase(lane, "update");
     const updateArgs = ["update", "--tag", params.candidateUrl, "--yes"];
-    if (process.platform === "win32") {
+    if (process.platform === "win32" && (await supportsUpdateNoRestart(lane, env, join(params.logsDir, "upgrade-update-help.log")))) {
       updateArgs.push("--no-restart");
     }
     updateArgs.push("--json");
@@ -692,11 +692,8 @@ async function startGateway(params) {
 }
 
 async function waitForGateway(params) {
-  if (process.platform === "win32") {
-    return waitForGatewayProbe(params);
-  }
   const statusArgs = await resolveGatewayStatusArgs(params.lane, params.env, params.logPath);
-  const deadline = Date.now() + 90_000;
+  const deadline = Date.now() + gatewayReadyDeadlineMs();
   while (Date.now() < deadline) {
     let result;
     try {
@@ -720,62 +717,8 @@ async function waitForGateway(params) {
   throw new Error(`Gateway did not become ready on port ${params.lane.gatewayPort}.`);
 }
 
-async function waitForGatewayProbe(params) {
-  const probeUrl = resolveLocalGatewayProbeUrl(params.lane, params.env);
-  const probeArgs = [
-    "gateway",
-    "probe",
-    "--url",
-    probeUrl,
-    "--timeout",
-    "30000",
-    "--json",
-  ];
-  const deadline = Date.now() + 5 * 60 * 1000;
-  while (Date.now() < deadline) {
-    let result;
-    try {
-      result = await runOpenClaw({
-        lane: params.lane,
-        env: params.env,
-        args: probeArgs,
-        logPath: params.logPath,
-        timeoutMs: 45_000,
-        check: false,
-      });
-    } catch {
-      await sleep(3_000);
-      continue;
-    }
-    if (result.exitCode === 0) {
-      try {
-        const payload = JSON.parse(result.stdout);
-        if (payload?.ok === true) {
-          return;
-        }
-      } catch {}
-    }
-    await sleep(3_000);
-  }
-  throw new Error(`Gateway probe did not become ready at ${probeUrl}.`);
-}
-
-function resolveLocalGatewayProbeUrl(lane, env) {
-  const configPath =
-    typeof env?.OPENCLAW_CONFIG_PATH === "string" && env.OPENCLAW_CONFIG_PATH.trim()
-      ? env.OPENCLAW_CONFIG_PATH
-      : join(lane.stateDir, "openclaw.json");
-  const scheme = isLocalGatewayTlsEnabled(configPath) ? "wss" : "ws";
-  return `${scheme}://127.0.0.1:${lane.gatewayPort}`;
-}
-
-function isLocalGatewayTlsEnabled(configPath) {
-  try {
-    const parsed = JSON.parse(readFileSync(configPath, "utf8"));
-    return parsed?.gateway?.tls?.enabled === true;
-  } catch {
-    return false;
-  }
+function gatewayReadyDeadlineMs() {
+  return process.platform === "win32" ? 5 * 60 * 1000 : 90_000;
 }
 
 async function resolveGatewayStatusArgs(lane, env, logPath) {
@@ -794,6 +737,18 @@ async function resolveGatewayStatusArgs(lane, env, logPath) {
     return ["gateway", "status", "--deep", "--require-rpc", "--timeout", "5000"];
   }
   return ["gateway", "status", "--deep"];
+}
+
+async function supportsUpdateNoRestart(lane, env, logPath) {
+  const help = await runOpenClaw({
+    lane,
+    env,
+    args: ["update", "--help"],
+    logPath,
+    timeoutMs: 15_000,
+    check: false,
+  });
+  return help.exitCode === 0 && (help.stdout.includes("--no-restart") || help.stderr.includes("--no-restart"));
 }
 
 async function runModelsSet(params) {
