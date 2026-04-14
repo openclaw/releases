@@ -125,7 +125,7 @@ jobs:
         env:
           OUTPUT_DIR: ${{ runner.temp }}/openclaw-cross-os-release-checks/prepare
         run: |
-          node scripts/openclaw-cross-os-release-checks.mjs \
+          node --disable-warning=ExperimentalWarning scripts/openclaw-cross-os-release-checks.ts \
             --prepare-only \
             --source-dir source \
             --output-dir "${OUTPUT_DIR}"
@@ -287,7 +287,7 @@ jobs:
           OPENCLAW_RELEASE_CHECK_OS: ${{ matrix.os_id }}
           OPENCLAW_RELEASE_CHECK_RUNNER: ${{ matrix.runner }}
         run: |
-          node scripts/openclaw-cross-os-release-checks.mjs \
+          node --disable-warning=ExperimentalWarning scripts/openclaw-cross-os-release-checks.ts \
             --candidate-tgz "$RUNNER_TEMP/openclaw-cross-os-release-checks/candidate/${{ needs.prepare.outputs.candidate_file_name }}" \
             --candidate-version "${{ needs.prepare.outputs.candidate_version }}" \
             --source-sha "${{ needs.prepare.outputs.source_sha }}" \

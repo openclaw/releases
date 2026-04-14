@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+// Executed directly via Node's native TypeScript support in the release workflow.
+
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import {
