@@ -747,7 +747,8 @@ async function waitForGatewayProbe(params) {
     if (result.exitCode === 0) {
       try {
         const payload = JSON.parse(result.stdout);
-        if (payload?.ok === true) {
+        const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+        if (payload?.ok === true && targets.some((target) => target?.connect?.rpcOk === true)) {
           return;
         }
       } catch {}
@@ -813,7 +814,11 @@ async function runAgentTurn(params) {
 function parseAgentPayloadTexts(stdout) {
   try {
     const payload = JSON.parse(stdout);
-    const entries = payload?.result?.payloads;
+    const entries = Array.isArray(payload?.payloads)
+      ? payload.payloads
+      : Array.isArray(payload?.result?.payloads)
+        ? payload.result.payloads
+        : [];
     if (!Array.isArray(entries)) {
       return [];
     }
