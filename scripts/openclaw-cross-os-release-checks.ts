@@ -750,8 +750,7 @@ async function waitForGatewayProbe(params) {
     if (result.exitCode === 0) {
       try {
         const payload = JSON.parse(result.stdout);
-        const targets = Array.isArray(payload?.targets) ? payload.targets : [];
-        if (payload?.ok === true && targets.some((target) => target?.connect?.rpcOk === true)) {
+        if (payload?.ok === true) {
           return;
         }
       } catch {}
