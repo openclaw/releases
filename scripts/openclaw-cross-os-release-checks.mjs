@@ -22,16 +22,19 @@ const providedSourceSha = args["source-sha"]?.trim() || "";
 
 const providerConfig = {
   openai: {
+    extensionId: "openai",
     secretEnv: "OPENAI_API_KEY",
     authChoice: "openai-api-key",
     model: "openai/gpt-5.4",
   },
   anthropic: {
+    extensionId: "anthropic",
     secretEnv: "ANTHROPIC_API_KEY",
     authChoice: "apiKey",
     model: "anthropic/claude-sonnet-4-6",
   },
   minimax: {
+    extensionId: "minimax",
     secretEnv: "MINIMAX_API_KEY",
     authChoice: "minimax-global-api",
     model: "minimax/MiniMax-M2.7",
@@ -270,6 +273,12 @@ async function runFreshLane(params) {
     });
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
+    await installProviderRuntimeDeps({
+      lane,
+      env,
+      providerConfig: params.providerConfig,
+      logPath: join(params.logsDir, "fresh-provider-runtime-deps.log"),
+    });
 
     await runOnboard({
       lane,
@@ -355,6 +364,12 @@ async function runUpgradeLane(params) {
 
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
+    await installProviderRuntimeDeps({
+      lane,
+      env,
+      providerConfig: params.providerConfig,
+      logPath: join(params.logsDir, "upgrade-provider-runtime-deps.log"),
+    });
 
     await runOnboard({
       lane,
@@ -442,6 +457,7 @@ function buildLaneEnv(lane, providerMeta, providerSecretValue) {
     OPENCLAW_STATE_DIR: lane.stateDir,
     OPENCLAW_CONFIG_PATH: join(lane.stateDir, "openclaw.json"),
     OPENCLAW_DISABLE_BONJOUR: "1",
+    OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: "1",
     NPM_CONFIG_PREFIX: lane.prefixDir,
     PATH: `${binDirForPrefix(lane.prefixDir)}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
     [providerMeta.secretEnv]: providerSecretValue,
@@ -591,6 +607,54 @@ async function runAgentTurn(params) {
     throw new Error("Agent output did not contain the expected OK marker.");
   }
   return result;
+}
+
+async function installProviderRuntimeDeps(params) {
+  const packageRoot = installedPackageRoot(params.lane.prefixDir);
+  const extensionPackageJsonPath = join(
+    packageRoot,
+    "dist",
+    "extensions",
+    params.providerConfig.extensionId,
+    "package.json",
+  );
+  if (!existsSync(extensionPackageJsonPath)) {
+    return;
+  }
+  const extensionPackageJson = JSON.parse(readFileSync(extensionPackageJsonPath, "utf8"));
+  const dependencyEntries = Object.entries({
+    ...(extensionPackageJson.dependencies ?? {}),
+    ...(extensionPackageJson.optionalDependencies ?? {}),
+  });
+  if (dependencyEntries.length === 0) {
+    return;
+  }
+
+  const installEnv = {
+    ...params.env,
+  };
+  delete installEnv.NPM_CONFIG_PREFIX;
+  delete installEnv.npm_config_global;
+  delete installEnv.npm_config_location;
+  delete installEnv.npm_config_prefix;
+
+  await runCommand(
+    npmCommand(),
+    [
+      "install",
+      "--omit=dev",
+      "--no-save",
+      "--package-lock=false",
+      "--legacy-peer-deps",
+      ...dependencyEntries.map(([name, version]) => `${name}@${version}`),
+    ],
+    {
+      cwd: packageRoot,
+      env: installEnv,
+      logPath: params.logPath,
+      timeoutMs: 10 * 60 * 1000,
+    },
+  );
 }
 
 async function runDashboardSmoke(params) {
