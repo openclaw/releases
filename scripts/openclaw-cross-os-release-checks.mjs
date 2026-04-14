@@ -743,14 +743,20 @@ async function waitForGateway(params) {
   const statusArgs = await resolveGatewayStatusArgs(params.lane, params.env, params.logPath);
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const result = await runOpenClaw({
-      lane: params.lane,
-      env: params.env,
-      args: statusArgs,
-      logPath: params.logPath,
-      timeoutMs: 15_000,
-      check: false,
-    });
+    let result;
+    try {
+      result = await runOpenClaw({
+        lane: params.lane,
+        env: params.env,
+        args: statusArgs,
+        logPath: params.logPath,
+        timeoutMs: 20_000,
+        check: false,
+      });
+    } catch {
+      await sleep(2_000);
+      continue;
+    }
     if (result.exitCode === 0) {
       return;
     }
@@ -760,17 +766,23 @@ async function waitForGateway(params) {
 }
 
 async function waitForGatewayRpcProbe(params) {
-  const probeArgs = ["gateway", "probe", "--url", `ws://127.0.0.1:${params.lane.gatewayPort}`, "--timeout", "5000", "--json"];
+  const probeArgs = ["gateway", "probe", "--url", `ws://127.0.0.1:${params.lane.gatewayPort}`, "--timeout", "10000", "--json"];
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const result = await runOpenClaw({
-      lane: params.lane,
-      env: params.env,
-      args: probeArgs,
-      logPath: params.logPath,
-      timeoutMs: 15_000,
-      check: false,
-    });
+    let result;
+    try {
+      result = await runOpenClaw({
+        lane: params.lane,
+        env: params.env,
+        args: probeArgs,
+        logPath: params.logPath,
+        timeoutMs: 30_000,
+        check: false,
+      });
+    } catch {
+      await sleep(2_000);
+      continue;
+    }
     if (result.exitCode === 0) {
       return;
     }
