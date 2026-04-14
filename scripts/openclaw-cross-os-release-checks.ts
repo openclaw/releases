@@ -401,7 +401,15 @@ async function runUpgradeLane(params) {
     const baseline = readInstalledMetadata(lane.prefixDir);
 
     logLanePhase(lane, "update");
-    const updateArgs = ["update", "--tag", params.candidateUrl, "--yes", "--json"];
+    const updateArgs = [
+      "update",
+      "--tag",
+      params.candidateUrl,
+      "--yes",
+      "--json",
+      "--timeout",
+      String(updateStepTimeoutSeconds()),
+    ];
     await runOpenClaw({
       lane,
       env,
@@ -578,6 +586,10 @@ function installTimeoutMs() {
 
 function updateTimeoutMs() {
   return process.platform === "win32" ? 30 * 60 * 1000 : 20 * 60 * 1000;
+}
+
+function updateStepTimeoutSeconds() {
+  return process.platform === "win32" ? 1800 : 1200;
 }
 
 async function runBundledPluginPostinstall(params) {
