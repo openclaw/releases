@@ -639,6 +639,11 @@ async function stopGateway(gateway) {
       check: false,
       timeoutMs: 30_000,
     });
+    const exited = await waitForChildExit(gateway.child, 10_000);
+    if (!exited) {
+      gateway.child.stdout?.destroy();
+      gateway.child.stderr?.destroy();
+    }
     return;
   }
   if (gateway.child.exitCode !== null) {
