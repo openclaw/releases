@@ -401,11 +401,7 @@ async function runUpgradeLane(params) {
     const baseline = readInstalledMetadata(lane.prefixDir);
 
     logLanePhase(lane, "update");
-    const updateArgs = ["update", "--tag", params.candidateUrl, "--yes"];
-    if (process.platform === "win32" && (await supportsUpdateNoRestart(lane, env, join(params.logsDir, "upgrade-update-help.log")))) {
-      updateArgs.push("--no-restart");
-    }
-    updateArgs.push("--json");
+    const updateArgs = ["update", "--tag", params.candidateUrl, "--yes", "--json"];
     await runOpenClaw({
       lane,
       env,
@@ -737,18 +733,6 @@ async function resolveGatewayStatusArgs(lane, env, logPath) {
     return ["gateway", "status", "--deep", "--require-rpc", "--timeout", "5000"];
   }
   return ["gateway", "status", "--deep"];
-}
-
-async function supportsUpdateNoRestart(lane, env, logPath) {
-  const help = await runOpenClaw({
-    lane,
-    env,
-    args: ["update", "--help"],
-    logPath,
-    timeoutMs: 15_000,
-    check: false,
-  });
-  return help.exitCode === 0 && (help.stdout.includes("--no-restart") || help.stderr.includes("--no-restart"));
 }
 
 async function runModelsSet(params) {
