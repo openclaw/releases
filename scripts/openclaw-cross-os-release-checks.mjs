@@ -360,6 +360,7 @@ async function runUpgradeLane(params) {
       env,
       tgzPath: params.baselineTgz,
       logPath: join(params.logsDir, "upgrade-install-baseline.log"),
+      restoreBundledPluginRuntimeDeps: false,
     });
 
     const baseline = readInstalledMetadata(lane.prefixDir);
@@ -507,11 +508,13 @@ async function installTarballPackage(params) {
       env: params.env,
       logPath: params.logPath,
     });
-    await runBundledPluginPostinstall({
-      lane: params.lane,
-      env: params.env,
-      logPath: params.logPath,
-    });
+    if (params.restoreBundledPluginRuntimeDeps !== false) {
+      await runBundledPluginPostinstall({
+        lane: params.lane,
+        env: params.env,
+        logPath: params.logPath,
+      });
+    }
   } finally {
     rmSync(stagingDir, { force: true, recursive: true });
   }
