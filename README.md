@@ -22,6 +22,11 @@ live in `openclaw/openclaw`.
   `.github/workflows/openclaw-macos-publish.yml`
 - Optional private cross-OS release runtime workflow:
   `.github/workflows/openclaw-cross-os-release-checks.yml`
+- That private workflow is only the manual caller and secret boundary.
+- The reusable workflow definition for those checks lives in the public repo:
+  `openclaw/openclaw/.github/workflows/openclaw-cross-os-release-checks-reusable.yml`
+- Private npm dist-tag sync workflow:
+  `.github/workflows/openclaw-npm-dist-tags.yml`
 - The validation workflow is the required `swift test` lane for release
   readiness, and each successful run uploads a `macos-validate-<tag>` proof
   artifact. It does not build, sign, notarize, package, or upload release
@@ -45,6 +50,11 @@ live in `openclaw/openclaw`.
   runs.
 - Real publish runs upload the `.zip`, `.dmg`, and `.dSYM.zip` files to the
   existing release in `openclaw/openclaw` automatically.
+- Stable npm dist-tag mutation now lives in the private workflow
+  `.github/workflows/openclaw-npm-dist-tags.yml`, so the public repo can keep
+  trusted publishing for `npm publish` without holding an npm write token.
+- That private workflow only moves `npm beta` to a stable version after
+  confirming `npm latest` already points at the same version.
 - No GitHub App secret is required. Public source checkout and appcast seeding
   happen without extra credentials, and the cross-repo release upload uses
   `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN`.
@@ -60,6 +70,9 @@ live in `openclaw/openclaw`.
   install, upgrade, gateway, and end-to-end validation on GitHub-hosted Linux,
   macOS, and Windows runners, and it is intentionally outside the critical
   release publish path.
+- The private repo keeps the provider secrets and dispatch surface for that
+  workflow, while the reusable workflow logic itself lives in
+  `openclaw/openclaw`.
 - The cross-OS workflow builds and packs the candidate once, then reuses that
   same npm tarball across Linux, macOS, and Windows so every lane validates the
   exact same artifact.
@@ -82,6 +95,7 @@ live in `openclaw/openclaw`.
 - `SPARKLE_PRIVATE_KEY`
 - `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN` (`contents:write` on `openclaw/openclaw`
   is sufficient)
+- `NPM_TOKEN` (used only for `npm dist-tag add`, not for trusted publishing)
 
 ## Required repo secrets for cross-OS runtime checks
 
