@@ -20,6 +20,8 @@ live in `openclaw/openclaw`.
   `.github/workflows/openclaw-macos-validate.yml`
 - Real mac publish workflow:
   `.github/workflows/openclaw-macos-publish.yml`
+- Optional private cross-OS release runtime workflow:
+  `.github/workflows/openclaw-cross-os-release-checks.yml`
 - The validation workflow is the required `swift test` lane for release
   readiness, and each successful run uploads a `macos-validate-<tag>` proof
   artifact. It does not build, sign, notarize, package, or upload release
@@ -54,6 +56,10 @@ live in `openclaw/openclaw`.
 - Validation-only and preflight-only runs may still be dispatched from branches
   while iterating on workflow changes, but their run ids are not valid for real
   publish.
+- The cross-OS release runtime workflow is manual and optional. It is for
+  install, upgrade, gateway, and end-to-end validation on GitHub-hosted Linux,
+  macOS, and Windows runners, and it is intentionally outside the critical
+  release publish path.
 - Do not start the real private mac publish until public npm preflight, public
   mac validation, private mac validation, and private mac preflight have all
   passed.
@@ -73,6 +79,16 @@ live in `openclaw/openclaw`.
 - `SPARKLE_PRIVATE_KEY`
 - `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN` (`contents:write` on `openclaw/openclaw`
   is sufficient)
+
+## Required repo secrets for cross-OS runtime checks
+
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `MINIMAX_API_KEY`
+
+The cross-OS workflow selects one provider lane per run. It requires the
+matching provider key to exist as a repo secret, but it does not require Apple
+signing or notarization secrets.
 
 ## Repo policy
 
