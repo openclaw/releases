@@ -46,15 +46,14 @@ on:
         default: ""
         type: string
 
+permissions: read-all
+
 concurrency:
   group: openclaw-cross-os-release-checks-${{ inputs.ref }}-${{ inputs.provider }}-${{ inputs.mode }}
   cancel-in-progress: false
 
 jobs:
   cross_os_release_checks:
-    permissions:
-      actions: read
-      contents: read
     uses: openclaw/openclaw/.github/workflows/openclaw-cross-os-release-checks-reusable.yml@codex/cross-os-reusable-workflow-permissions
     with:
       ref: ${{ inputs.ref }}
