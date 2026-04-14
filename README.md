@@ -50,8 +50,12 @@ live in `openclaw/openclaw`.
 - Stable npm dist-tag mutation now lives in the private workflow
   `.github/workflows/openclaw-npm-dist-tags.yml`, so the public repo can keep
   trusted publishing for `npm publish` without holding an npm write token.
-- That private workflow only moves `npm beta` to a stable version after
-  confirming `npm latest` already points at the same version.
+- That private workflow is self-healing: it runs on a schedule and can also be
+  rerun manually without inputs.
+- It only moves `npm beta` to the current stable `npm latest` after confirming
+  the matching public release tag exists in `openclaw/openclaw`.
+- It intentionally leaves `beta` alone when it already matches `latest` or when
+  `beta` points at a newer future prerelease than the current stable release.
 - No GitHub App secret is required. Public source checkout and appcast seeding
   happen without extra credentials, and the cross-repo release upload uses
   `OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN`.
