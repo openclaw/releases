@@ -162,6 +162,8 @@ if (overallFailed) {
 async function prepareCandidate(params) {
   const packageJsonPath = join(params.sourceDir, "package.json");
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  const hasUiBuildScript = typeof packageJson.scripts?.["ui:build"] === "string";
+  const controlUiIndexPath = join(params.sourceDir, "dist", "control-ui", "index.html");
   const sourceSha = (
     await runCommand(gitCommand(), ["rev-parse", "HEAD"], {
       cwd: params.sourceDir,
@@ -188,12 +190,14 @@ async function prepareCandidate(params) {
     timeoutMs: 45 * 60 * 1000,
   });
 
-  await runCommand(pnpmCommand(), ["ui:build"], {
-    cwd: params.sourceDir,
-    env: buildEnv,
-    logPath: join(params.logsDir, "pnpm-ui-build.log"),
-    timeoutMs: 30 * 60 * 1000,
-  });
+  if (!existsSync(controlUiIndexPath) && hasUiBuildScript) {
+    await runCommand(pnpmCommand(), ["ui:build"], {
+      cwd: params.sourceDir,
+      env: buildEnv,
+      logPath: join(params.logsDir, "pnpm-ui-build.log"),
+      timeoutMs: 30 * 60 * 1000,
+    });
+  }
 
   const packDir = join(outputDir, "package");
   mkdirSync(packDir, { recursive: true });
