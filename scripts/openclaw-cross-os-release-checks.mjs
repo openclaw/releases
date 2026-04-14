@@ -2,7 +2,7 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -164,6 +164,7 @@ async function prepareCandidate(params) {
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
   const hasUiBuildScript = typeof packageJson.scripts?.["ui:build"] === "string";
   const controlUiIndexPath = join(params.sourceDir, "dist", "control-ui", "index.html");
+  const controlUiAssetsPath = join(params.sourceDir, "dist", "control-ui", "assets");
   const sourceSha = (
     await runCommand(gitCommand(), ["rev-parse", "HEAD"], {
       cwd: params.sourceDir,
@@ -190,7 +191,7 @@ async function prepareCandidate(params) {
     timeoutMs: 45 * 60 * 1000,
   });
 
-  if (!existsSync(controlUiIndexPath) && hasUiBuildScript) {
+  if (!hasControlUiBundle(controlUiIndexPath, controlUiAssetsPath) && hasUiBuildScript) {
     await runCommand(pnpmCommand(), ["ui:build"], {
       cwd: params.sourceDir,
       env: buildEnv,
@@ -221,6 +222,17 @@ async function prepareCandidate(params) {
     candidateTgz: join(packDir, lastPack.filename),
     candidateFileName: String(lastPack.filename).trim(),
   };
+}
+
+function hasControlUiBundle(indexPath, assetsPath) {
+  if (!existsSync(indexPath) || !existsSync(assetsPath)) {
+    return false;
+  }
+  try {
+    return readdirSync(assetsPath).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function readProvidedCandidate(params) {
