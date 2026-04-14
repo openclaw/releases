@@ -221,7 +221,11 @@ jobs:
             {
               os_id: "windows",
               display_name: "Windows",
-              runner: pick(process.env.INPUT_WINDOWS_RUNNER, process.env.VAR_WINDOWS_RUNNER, "windows-latest"),
+              runner: pick(
+                process.env.INPUT_WINDOWS_RUNNER,
+                process.env.VAR_WINDOWS_RUNNER,
+                "blacksmith-32vcpu-windows-2025",
+              ),
               artifact_name: "windows",
             },
             {
