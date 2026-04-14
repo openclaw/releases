@@ -4,19 +4,17 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import {
   chmodSync,
-  copyFileSync,
   createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createServer as createNetServer } from "node:net";
 
 const args = parseArgs(process.argv.slice(2));
@@ -392,6 +390,14 @@ async function runUpgradeLane(params) {
         logPath: join(params.logsDir, "upgrade-install-baseline.log"),
         restoreBundledPluginRuntimeDeps: false,
       });
+      if (shouldRestoreBundledPluginRuntimeDeps({ lane })) {
+        logLanePhase(lane, "restore-baseline-bundled-plugin-runtime-deps");
+        await runBundledPluginPostinstall({
+          lane,
+          env,
+          logPath: join(params.logsDir, "upgrade-install-baseline.log"),
+        });
+      }
     }
 
     const baseline = readInstalledMetadata(lane.prefixDir);
@@ -530,71 +536,20 @@ function buildLaneEnv(lane, providerMeta, providerSecretValue) {
 }
 
 async function installTarballPackage(params) {
-  const packageRoot = installedPackageRoot(params.lane.prefixDir);
-  const packageRootParent = dirname(packageRoot);
-  const stagingDir = mkdtempSync(join(tmpdir(), `openclaw-install-${params.lane.name}-`));
-  try {
-    rmSync(packageRoot, { force: true, recursive: true });
-    mkdirSync(packageRootParent, { recursive: true });
-    const archiveName = basename(params.tgzPath);
-    const stagingArchivePath = join(stagingDir, archiveName);
-    copyFileSync(params.tgzPath, stagingArchivePath);
-    await runCommand("tar", ["-xzf", archiveName], {
-      cwd: stagingDir,
+  await installPackageSpec({
+    lane: params.lane,
+    env: params.env,
+    packageSpec: params.tgzPath,
+    logPath: params.logPath,
+    timeoutMs: params.timeoutMs,
+  });
+  if (params.restoreBundledPluginRuntimeDeps !== false && shouldRestoreBundledPluginRuntimeDeps({ lane: params.lane })) {
+    await runBundledPluginPostinstall({
+      lane: params.lane,
       env: params.env,
       logPath: params.logPath,
-      timeoutMs: 5 * 60 * 1000,
     });
-    const extractedPackageDir = join(stagingDir, "package");
-    if (!existsSync(extractedPackageDir)) {
-      throw new Error(`Extracted package directory missing after untar: ${extractedPackageDir}`);
-    }
-    renameSync(extractedPackageDir, packageRoot);
-    await installPackageRuntimeDeps({
-      cwd: packageRoot,
-      env: params.env,
-      logPath: params.logPath,
-      timeoutMs: 20 * 60 * 1000,
-    });
-    if (params.restoreBundledPluginRuntimeDeps !== false) {
-      await runBundledPluginPostinstall({
-        lane: params.lane,
-        env: params.env,
-        logPath: params.logPath,
-      });
-    }
-  } finally {
-    rmSync(stagingDir, { force: true, recursive: true });
   }
-}
-
-async function installPackageRuntimeDeps(params) {
-  const installEnv = {
-    ...params.env,
-  };
-  delete installEnv.NPM_CONFIG_PREFIX;
-  delete installEnv.npm_config_global;
-  delete installEnv.npm_config_location;
-  delete installEnv.npm_config_prefix;
-
-  await runCommand(
-    npmCommand(),
-    [
-      "install",
-      "--omit=dev",
-      "--no-save",
-      "--package-lock=false",
-      "--legacy-peer-deps",
-      "--no-fund",
-      "--no-audit",
-    ],
-    {
-      cwd: params.cwd,
-      env: installEnv,
-      logPath: params.logPath,
-      timeoutMs: params.timeoutMs ?? 20 * 60 * 1000,
-    },
-  );
 }
 
 async function installPackageSpec(params) {
@@ -837,10 +792,24 @@ async function runAgentTurn(params) {
     logPath: params.logPath,
     timeoutMs: 10 * 60 * 1000,
   });
-  if (!/\bOK\b/u.test(result.stdout)) {
+  const payloadTexts = parseAgentPayloadTexts(result.stdout);
+  if (!payloadTexts.some((text) => text.trim() === "OK")) {
     throw new Error("Agent output did not contain the expected OK marker.");
   }
   return result;
+}
+
+function parseAgentPayloadTexts(stdout) {
+  try {
+    const payload = JSON.parse(stdout);
+    const entries = payload?.result?.payloads;
+    if (!Array.isArray(entries)) {
+      return [];
+    }
+    return entries.flatMap((entry) => (typeof entry?.text === "string" ? [entry.text] : []));
+  } catch {
+    return stdout.trim() ? [stdout] : [];
+  }
 }
 
 async function runDashboardSmoke(params) {
