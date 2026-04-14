@@ -691,7 +691,7 @@ async function startGateway(params) {
 
 async function waitForGateway(params) {
   if (process.platform === "win32") {
-    return waitForGatewayRpcHealth(params);
+    return waitForGatewayProbe(params);
   }
   const statusArgs = await resolveGatewayStatusArgs(params.lane, params.env, params.logPath);
   const deadline = Date.now() + 90_000;
@@ -718,30 +718,43 @@ async function waitForGateway(params) {
   throw new Error(`Gateway did not become ready on port ${params.lane.gatewayPort}.`);
 }
 
-async function waitForGatewayRpcHealth(params) {
-  const healthArgs = ["health", "--json", "--timeout", "10000"];
-  const deadline = Date.now() + 90_000;
+async function waitForGatewayProbe(params) {
+  const probeArgs = [
+    "gateway",
+    "probe",
+    "--url",
+    `ws://127.0.0.1:${params.lane.gatewayPort}`,
+    "--timeout",
+    "30000",
+    "--json",
+  ];
+  const deadline = Date.now() + 5 * 60 * 1000;
   while (Date.now() < deadline) {
     let result;
     try {
       result = await runOpenClaw({
         lane: params.lane,
         env: params.env,
-        args: healthArgs,
+        args: probeArgs,
         logPath: params.logPath,
-        timeoutMs: 30_000,
+        timeoutMs: 45_000,
         check: false,
       });
     } catch {
-      await sleep(2_000);
+      await sleep(3_000);
       continue;
     }
     if (result.exitCode === 0) {
-      return;
+      try {
+        const payload = JSON.parse(result.stdout);
+        if (payload?.ok === true) {
+          return;
+        }
+      } catch {}
     }
-    await sleep(2_000);
+    await sleep(3_000);
   }
-  throw new Error(`Gateway health did not become ready on port ${params.lane.gatewayPort}.`);
+  throw new Error(`Gateway probe did not become ready on port ${params.lane.gatewayPort}.`);
 }
 
 async function resolveGatewayStatusArgs(lane, env, logPath) {
