@@ -2,7 +2,7 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -408,6 +408,7 @@ function createLaneState(name) {
 }
 
 function buildLaneEnv(lane, providerMeta, providerSecretValue) {
+  ensureLocalNpmShim(lane);
   return {
     ...process.env,
     HOME: lane.homeDir,
@@ -430,6 +431,32 @@ async function installPackage(params) {
     logPath: params.logPath,
     timeoutMs: 20 * 60 * 1000,
   });
+}
+
+function ensureLocalNpmShim(lane) {
+  const shimPath = npmShimPath(lane.prefixDir);
+  if (existsSync(shimPath)) {
+    return;
+  }
+  mkdirSync(dirname(shimPath), { recursive: true });
+  const resolvedNpm = resolveCommandPath(npmCommand());
+  if (!resolvedNpm) {
+    throw new Error(`Failed to resolve ${npmCommand()} on PATH.`);
+  }
+  if (process.platform === "win32") {
+    writeFileSync(
+      shimPath,
+      `@echo off\r\nset "NPM_CONFIG_PREFIX=${lane.prefixDir}"\r\n"${resolvedNpm}" %*\r\n`,
+      "utf8",
+    );
+    return;
+  }
+  writeFileSync(
+    shimPath,
+    `#!/bin/sh\nexport NPM_CONFIG_PREFIX='${shellEscapeForSh(lane.prefixDir)}'\nexec '${shellEscapeForSh(resolvedNpm)}' "$@"\n`,
+    "utf8",
+  );
+  chmodSync(shimPath, 0o755);
 }
 
 async function runOnboard(params) {
@@ -658,6 +685,10 @@ function installedEntryPath(prefixDir) {
   return join(installedPackageRoot(prefixDir), "openclaw.mjs");
 }
 
+function npmShimPath(prefixDir) {
+  return process.platform === "win32" ? join(prefixDir, "npm.cmd") : join(prefixDir, "bin", "npm");
+}
+
 function binDirForPrefix(prefixDir) {
   return process.platform === "win32" ? prefixDir : join(prefixDir, "bin");
 }
@@ -860,6 +891,28 @@ function requireArg(argsMap, key) {
     throw new Error(`Missing required --${key} argument.`);
   }
   return value;
+}
+
+function resolveCommandPath(command) {
+  const pathValue = process.env.PATH ?? "";
+  const pathEntries = pathValue.split(process.platform === "win32" ? ";" : ":").filter(Boolean);
+  const candidates =
+    process.platform === "win32" && !command.toLowerCase().endsWith(".cmd")
+      ? [`${command}.cmd`, `${command}.exe`, command]
+      : [command];
+  for (const entry of pathEntries) {
+    for (const candidate of candidates) {
+      const fullPath = join(entry, candidate);
+      if (existsSync(fullPath)) {
+        return fullPath;
+      }
+    }
+  }
+  return null;
+}
+
+function shellEscapeForSh(value) {
+  return value.replace(/'/gu, `'\"'\"'`);
 }
 
 function trimForSummary(value) {
