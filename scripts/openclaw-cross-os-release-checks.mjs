@@ -658,9 +658,30 @@ async function startGateway(params) {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
-  child.stdout?.pipe(gatewayLog);
-  child.stderr?.pipe(gatewayLog);
-  return { child, logPath: params.logPath };
+  child.stdout?.on("data", (chunk) => {
+    gatewayLog.write(chunk);
+  });
+  child.stderr?.on("data", (chunk) => {
+    gatewayLog.write(chunk);
+  });
+  let logClosed = false;
+  const closeLog = async () => {
+    if (logClosed) {
+      return;
+    }
+    logClosed = true;
+    await new Promise((resolvePromise) => {
+      gatewayLog.once("error", () => resolvePromise());
+      gatewayLog.end(() => resolvePromise());
+    });
+  };
+  child.once("close", () => {
+    void closeLog();
+  });
+  child.once("error", () => {
+    void closeLog();
+  });
+  return { child, closeLog, logPath: params.logPath };
 }
 
 async function waitForGateway(params) {
@@ -769,30 +790,34 @@ async function runDashboardSmoke(params) {
 }
 
 async function stopGateway(gateway) {
-  if (!gateway?.child?.pid) {
-    return;
-  }
-  if (process.platform === "win32") {
-    await runCommand("taskkill", ["/PID", String(gateway.child.pid), "/T", "/F"], {
-      logPath: gateway.logPath,
-      check: false,
-      timeoutMs: 30_000,
-    });
-    const exited = await waitForChildExit(gateway.child, 10_000);
-    if (!exited) {
-      gateway.child.stdout?.destroy();
-      gateway.child.stderr?.destroy();
+  try {
+    if (!gateway?.child?.pid) {
+      return;
     }
-    return;
-  }
-  if (gateway.child.exitCode !== null) {
-    return;
-  }
-  gateway.child.kill("SIGTERM");
-  const exitedAfterTerm = await waitForChildExit(gateway.child, 2_000);
-  if (!exitedAfterTerm && gateway.child.exitCode === null) {
-    gateway.child.kill("SIGKILL");
-    await waitForChildExit(gateway.child, 5_000);
+    if (process.platform === "win32") {
+      await runCommand("taskkill", ["/PID", String(gateway.child.pid), "/T", "/F"], {
+        logPath: gateway.logPath,
+        check: false,
+        timeoutMs: 30_000,
+      });
+      const exited = await waitForChildExit(gateway.child, 10_000);
+      if (!exited) {
+        gateway.child.stdout?.destroy();
+        gateway.child.stderr?.destroy();
+      }
+      return;
+    }
+    if (gateway.child.exitCode !== null) {
+      return;
+    }
+    gateway.child.kill("SIGTERM");
+    const exitedAfterTerm = await waitForChildExit(gateway.child, 2_000);
+    if (!exitedAfterTerm && gateway.child.exitCode === null) {
+      gateway.child.kill("SIGKILL");
+      await waitForChildExit(gateway.child, 5_000);
+    }
+  } finally {
+    await gateway?.closeLog?.();
   }
 }
 
