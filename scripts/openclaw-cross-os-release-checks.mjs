@@ -569,9 +569,13 @@ async function installPackageSpec(params) {
       cwd: params.lane.homeDir,
       env: installEnv,
       logPath: params.logPath,
-      timeoutMs: params.timeoutMs ?? 20 * 60 * 1000,
+      timeoutMs: params.timeoutMs ?? installTimeoutMs(),
     },
   );
+}
+
+function installTimeoutMs() {
+  return process.platform === "win32" ? 45 * 60 * 1000 : 20 * 60 * 1000;
 }
 
 async function runBundledPluginPostinstall(params) {
