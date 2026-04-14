@@ -298,8 +298,8 @@ async function runFreshLane(params) {
     });
     const installed = readInstalledMetadata(lane.prefixDir);
     verifyInstalledCandidate(installed, params.build);
-    if (shouldRestoreProviderRuntimeDeps({ lane, providerConfig: params.providerConfig })) {
-      logLanePhase(lane, "restore-provider-runtime-deps");
+    if (shouldRestoreBundledPluginRuntimeDeps({ lane })) {
+      logLanePhase(lane, "restore-bundled-plugin-runtime-deps");
       await runBundledPluginPostinstall({
         lane,
         env,
@@ -414,7 +414,7 @@ async function runUpgradeLane(params) {
       timeoutMs: 2 * 60 * 1000,
     });
     logLanePhase(lane, "restore-bundled-plugin-runtime-deps");
-    if (shouldRestoreProviderRuntimeDeps({ lane, providerConfig: params.providerConfig })) {
+    if (shouldRestoreBundledPluginRuntimeDeps({ lane })) {
       await runBundledPluginPostinstall({
         lane,
         env,
@@ -752,9 +752,6 @@ async function waitForGateway(params) {
 }
 
 async function resolveGatewayStatusArgs(lane, env, logPath) {
-  if (process.platform === "win32") {
-    return ["gateway", "status", "--deep"];
-  }
   const help = await runOpenClaw({
     lane,
     env,
@@ -1371,28 +1368,43 @@ function shellEscapeForSh(value) {
   return value.replace(/'/gu, `'\"'\"'`);
 }
 
-function shouldRestoreProviderRuntimeDeps(params) {
-  const providerDir = join(installedPackageRoot(params.lane.prefixDir), "dist", "extensions", params.providerConfig.extensionId);
-  const providerPackageJsonPath = join(providerDir, "package.json");
-  if (!existsSync(providerPackageJsonPath)) {
+function shouldRestoreBundledPluginRuntimeDeps(params) {
+  const packageRoot = installedPackageRoot(params.lane.prefixDir);
+  const extensionsDir = join(packageRoot, "dist", "extensions");
+  if (!existsSync(extensionsDir)) {
     return true;
   }
-  let providerPackageJson;
+  let extensionEntries;
   try {
-    providerPackageJson = JSON.parse(readFileSync(providerPackageJsonPath, "utf8"));
+    extensionEntries = readdirSync(extensionsDir, { withFileTypes: true });
   } catch {
     return true;
   }
-  const runtimeDeps = {
-    ...(providerPackageJson.dependencies ?? {}),
-    ...(providerPackageJson.optionalDependencies ?? {}),
-  };
-  const depNames = Object.keys(runtimeDeps);
-  if (depNames.length === 0) {
+  const depNames = new Set();
+  for (const entry of extensionEntries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const packageJsonPath = join(extensionsDir, entry.name, "package.json");
+    if (!existsSync(packageJsonPath)) {
+      continue;
+    }
+    try {
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+      for (const depName of Object.keys(packageJson.dependencies ?? {})) {
+        depNames.add(depName);
+      }
+      for (const depName of Object.keys(packageJson.optionalDependencies ?? {})) {
+        depNames.add(depName);
+      }
+    } catch {
+      return true;
+    }
+  }
+  if (depNames.size === 0) {
     return false;
   }
-  const packageRoot = installedPackageRoot(params.lane.prefixDir);
-  return depNames.some((depName) => !existsSync(join(packageRoot, "node_modules", ...depName.split("/"), "package.json")));
+  return Array.from(depNames).some((depName) => !existsSync(join(packageRoot, "node_modules", ...depName.split("/"), "package.json")));
 }
 
 function logPhase(scope, phase) {
