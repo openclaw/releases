@@ -707,9 +707,11 @@ function gitCommand() {
 
 async function runCommand(command, args, options) {
   return new Promise((resolvePromise, rejectPromise) => {
+    const useWindowsShell = process.platform === "win32" && /\.(cmd|bat)$/iu.test(command);
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
+      shell: useWindowsShell,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
