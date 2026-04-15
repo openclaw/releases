@@ -228,10 +228,16 @@ async function prepareCandidate(params) {
   mkdirSync(packDir, { recursive: true });
   const packJsonPath = join(packDir, "pack.json");
   logPhase("prepare", "npm-pack");
-  const packResult = await runCommand(npmCommand(), ["pack", "--ignore-scripts", "--json", "--pack-destination", packDir], {
+  const packResult = await runCommand(npmCommand(), ["pack", "--json", "--pack-destination", packDir], {
     cwd: params.sourceDir,
+    env: {
+      ...buildEnv,
+      // Reuse the prepared build outputs instead of rebuilding during prepack,
+      // while still letting npm pack include prepack-generated release metadata.
+      OPENCLAW_PREPACK_PREPARED: "1",
+    },
     logPath: join(params.logsDir, "npm-pack.log"),
-    timeoutMs: 10 * 60 * 1000,
+    timeoutMs: 15 * 60 * 1000,
   });
   writeFileSync(packJsonPath, packResult.stdout, "utf8");
   const parsedPack = JSON.parse(packResult.stdout);
