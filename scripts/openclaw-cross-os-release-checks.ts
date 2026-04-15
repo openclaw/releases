@@ -53,6 +53,17 @@ const providerConfig = {
   },
 };
 
+const PACKAGE_DIST_INVENTORY_RELATIVE_PATH = "dist/postinstall-inventory.json";
+const PACKAGED_QA_RUNTIME_PATHS = new Set([
+  "dist/extensions/qa-channel/runtime-api.js",
+  "dist/extensions/qa-lab/runtime-api.js",
+]);
+const OMITTED_QA_EXTENSION_PREFIXES = [
+  "dist/extensions/qa-channel/",
+  "dist/extensions/qa-lab/",
+  "dist/extensions/qa-matrix/",
+];
+
 if (!new Set(["fresh", "upgrade", "both"]).has(mode)) {
   throw new Error(`Unsupported mode "${mode}".`);
 }
@@ -227,17 +238,16 @@ async function prepareCandidate(params) {
   const packDir = join(outputDir, "package");
   mkdirSync(packDir, { recursive: true });
   const packJsonPath = join(packDir, "pack.json");
+  logPhase("prepare", "package-dist-inventory");
+  await writePackageDistInventoryForCandidate({
+    sourceDir: params.sourceDir,
+    logPath: join(params.logsDir, "npm-pack-dry-run.log"),
+  });
   logPhase("prepare", "npm-pack");
-  const packResult = await runCommand(npmCommand(), ["pack", "--json", "--pack-destination", packDir], {
+  const packResult = await runCommand(npmCommand(), ["pack", "--ignore-scripts", "--json", "--pack-destination", packDir], {
     cwd: params.sourceDir,
-    env: {
-      ...buildEnv,
-      // Reuse the prepared build outputs instead of rebuilding during prepack,
-      // while still letting npm pack include prepack-generated release metadata.
-      OPENCLAW_PREPACK_PREPARED: "1",
-    },
     logPath: join(params.logsDir, "npm-pack.log"),
-    timeoutMs: 15 * 60 * 1000,
+    timeoutMs: 10 * 60 * 1000,
   });
   writeFileSync(packJsonPath, packResult.stdout, "utf8");
   const parsedPack = JSON.parse(packResult.stdout);
@@ -264,6 +274,52 @@ function hasControlUiBundle(indexPath, assetsPath) {
   } catch {
     return false;
   }
+}
+
+function normalizeRelativePath(value) {
+  return value.replace(/\\/gu, "/");
+}
+
+function isPackagedDistPath(relativePath) {
+  if (!relativePath.startsWith("dist/")) {
+    return false;
+  }
+  if (relativePath === PACKAGE_DIST_INVENTORY_RELATIVE_PATH) {
+    return false;
+  }
+  if (relativePath.endsWith(".map")) {
+    return false;
+  }
+  if (relativePath === "dist/plugin-sdk/.tsbuildinfo") {
+    return false;
+  }
+  if (OMITTED_QA_EXTENSION_PREFIXES.some((prefix) => relativePath.startsWith(prefix))) {
+    return PACKAGED_QA_RUNTIME_PATHS.has(relativePath);
+  }
+  return true;
+}
+
+async function writePackageDistInventoryForCandidate(params) {
+  const dryRun = await runCommand(npmCommand(), ["pack", "--dry-run", "--ignore-scripts", "--json"], {
+    cwd: params.sourceDir,
+    logPath: params.logPath,
+    timeoutMs: 5 * 60 * 1000,
+  });
+  const parsedPack = JSON.parse(dryRun.stdout);
+  const lastPack = Array.isArray(parsedPack) ? parsedPack.at(-1) : null;
+  const files = Array.isArray(lastPack?.files) ? lastPack.files : [];
+  if (files.length === 0) {
+    throw new Error("npm pack --dry-run did not report package files for dist inventory generation.");
+  }
+  const inventory = files
+    .flatMap((entry) => {
+      const relativePath = normalizeRelativePath(String(entry?.path ?? "").trim());
+      return isPackagedDistPath(relativePath) ? [relativePath] : [];
+    })
+    .toSorted((left, right) => left.localeCompare(right));
+  const inventoryPath = join(params.sourceDir, PACKAGE_DIST_INVENTORY_RELATIVE_PATH);
+  mkdirSync(dirname(inventoryPath), { recursive: true });
+  writeFileSync(inventoryPath, `${JSON.stringify(inventory, null, 2)}\n`, "utf8");
 }
 
 function readProvidedCandidate(params) {
