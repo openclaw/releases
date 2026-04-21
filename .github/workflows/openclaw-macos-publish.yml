@@ -25,6 +25,11 @@ on:
         description: Existing successful private mac validate workflow run id to prove the required swift test gate passed for this tag
         required: false
         type: string
+      public_release_branch:
+        description: Public openclaw/openclaw branch that contains the release tag commit
+        required: false
+        default: main
+        type: string
 
 concurrency:
   group: openclaw-macos-publish-${{ contains(inputs.tag, '-beta.') && inputs.tag || 'stable-feed' }}
@@ -224,12 +229,17 @@ jobs:
         working-directory: source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-          RELEASE_MAIN_REF: origin/main
+          PUBLIC_RELEASE_BRANCH: ${{ inputs.public_release_branch }}
         run: |
           set -euo pipefail
+          if [[ "${PUBLIC_RELEASE_BRANCH}" != "main" && ! "${PUBLIC_RELEASE_BRANCH}" =~ ^release/[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
+            echo "Invalid public_release_branch: ${PUBLIC_RELEASE_BRANCH}" >&2
+            exit 1
+          fi
           RELEASE_SHA=$(git rev-parse HEAD)
+          RELEASE_MAIN_REF="refs/remotes/origin/${PUBLIC_RELEASE_BRANCH}"
           export RELEASE_SHA RELEASE_TAG RELEASE_MAIN_REF
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git fetch --no-tags origin "+refs/heads/${PUBLIC_RELEASE_BRANCH}:refs/remotes/origin/${PUBLIC_RELEASE_BRANCH}"
           pnpm release:openclaw:npm:check
 
       - name: Verify release contents
