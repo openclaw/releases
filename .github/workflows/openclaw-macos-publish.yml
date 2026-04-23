@@ -7,6 +7,10 @@ on:
         description: Existing OpenClaw release tag to package (for example v2026.3.22 or v2026.3.22-beta.1)
         required: true
         type: string
+      source_ref:
+        description: Optional public openclaw/openclaw source ref to build instead of the tag, for release-branch-only packaging fixes after npm/tag publication
+        required: false
+        type: string
       preflight_only:
         description: Build, sign, notarize, and package only; skip uploading assets to the public GitHub release
         required: true
@@ -128,13 +132,28 @@ jobs:
       actions: read
       contents: read
     steps:
-      - name: Clone selected public source tag
+      - name: Clone selected public source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/openclaw/openclaw.git source
-          git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
+          if [[ -z "${SOURCE_REF}" ]]; then
+            git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
+            exit 0
+          fi
+          if [[ "${SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+            git -C source fetch --filter=blob:none origin "${SOURCE_REF}"
+            git -C source checkout --detach "${SOURCE_REF}"
+            exit 0
+          fi
+          if [[ "${SOURCE_REF}" != "main" && ! "${SOURCE_REF}" =~ ^release/[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
+            echo "Invalid source_ref: ${SOURCE_REF}" >&2
+            exit 1
+          fi
+          git -C source fetch --filter=blob:none origin "+refs/heads/${SOURCE_REF}:refs/remotes/origin/${SOURCE_REF}"
+          git -C source checkout --detach "refs/remotes/origin/${SOURCE_REF}"
 
       - name: Checkout submodules (retry)
         working-directory: source
@@ -585,6 +604,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           EXPECTED_RELEASE_SHA: ${{ steps.expected_release.outputs.sha }}
+          PUBLIC_RELEASE_BRANCH: ${{ inputs.public_release_branch }}
         run: |
           set -euo pipefail
           TAG_FILE="$(find promoted-artifacts -type f -name 'release-tag.txt' -print | sort | tail -n 1)"
@@ -601,8 +621,28 @@ jobs:
             exit 1
           fi
           if [[ "$ARTIFACT_RELEASE_SHA" != "$EXPECTED_RELEASE_SHA" ]]; then
-            echo "Prepared macOS preflight SHA mismatch: expected $EXPECTED_RELEASE_SHA, got $ARTIFACT_RELEASE_SHA" >&2
-            exit 1
+            if [[ "${PUBLIC_RELEASE_BRANCH}" != "main" && ! "${PUBLIC_RELEASE_BRANCH}" =~ ^release/[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
+              echo "Invalid public_release_branch: ${PUBLIC_RELEASE_BRANCH}" >&2
+              exit 1
+            fi
+            git init public-source
+            git -C public-source remote add origin https://github.com/openclaw/openclaw.git
+            git -C public-source fetch --filter=blob:none --depth=200 origin \
+              "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" \
+              "+refs/heads/${PUBLIC_RELEASE_BRANCH}:refs/remotes/origin/${PUBLIC_RELEASE_BRANCH}"
+            RESOLVED_TAG_SHA="$(git -C public-source rev-parse "refs/tags/${RELEASE_TAG}^{}")"
+            if [[ "$RESOLVED_TAG_SHA" != "$EXPECTED_RELEASE_SHA" ]]; then
+              echo "Resolved tag SHA changed while verifying artifacts: expected $EXPECTED_RELEASE_SHA, got $RESOLVED_TAG_SHA" >&2
+              exit 1
+            fi
+            if ! git -C public-source merge-base --is-ancestor "$EXPECTED_RELEASE_SHA" "$ARTIFACT_RELEASE_SHA"; then
+              echo "Prepared macOS preflight SHA $ARTIFACT_RELEASE_SHA is not a descendant of release tag $RELEASE_TAG ($EXPECTED_RELEASE_SHA)." >&2
+              exit 1
+            fi
+            if ! git -C public-source merge-base --is-ancestor "$ARTIFACT_RELEASE_SHA" "refs/remotes/origin/${PUBLIC_RELEASE_BRANCH}"; then
+              echo "Prepared macOS preflight SHA $ARTIFACT_RELEASE_SHA is not contained in ${PUBLIC_RELEASE_BRANCH}." >&2
+              exit 1
+            fi
           fi
 
       - name: Download prepared stable appcast artifact
@@ -630,21 +670,23 @@ jobs:
           EXPECTED_RELEASE_SHA: ${{ steps.expected_release.outputs.sha }}
         run: |
           set -euo pipefail
+          PREFLIGHT_SHA_FILE="$(find promoted-artifacts -type f -name 'release-sha.txt' -print | sort | tail -n 1)"
           TAG_FILE="$(find promoted-validation -type f -name 'release-tag.txt' -print | sort | tail -n 1)"
           SHA_FILE="$(find promoted-validation -type f -name 'release-sha.txt' -print | sort | tail -n 1)"
-          if [[ -z "$TAG_FILE" || -z "$SHA_FILE" || ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
+          if [[ -z "$PREFLIGHT_SHA_FILE" || -z "$TAG_FILE" || -z "$SHA_FILE" || ! -f "$PREFLIGHT_SHA_FILE" || ! -f "$TAG_FILE" || ! -f "$SHA_FILE" ]]; then
             echo "Validation proof metadata is missing." >&2
             ls -la promoted-validation >&2 || true
             exit 1
           fi
+          PREFLIGHT_RELEASE_SHA="$(tr -d '\r\n' < "$PREFLIGHT_SHA_FILE")"
           VALIDATION_RELEASE_TAG="$(tr -d '\r\n' < "$TAG_FILE")"
           VALIDATION_RELEASE_SHA="$(tr -d '\r\n' < "$SHA_FILE")"
           if [[ "$VALIDATION_RELEASE_TAG" != "$RELEASE_TAG" ]]; then
             echo "Validation proof tag mismatch: expected $RELEASE_TAG, got $VALIDATION_RELEASE_TAG" >&2
             exit 1
           fi
-          if [[ "$VALIDATION_RELEASE_SHA" != "$EXPECTED_RELEASE_SHA" ]]; then
-            echo "Validation proof SHA mismatch: expected $EXPECTED_RELEASE_SHA, got $VALIDATION_RELEASE_SHA" >&2
+          if [[ "$VALIDATION_RELEASE_SHA" != "$PREFLIGHT_RELEASE_SHA" ]]; then
+            echo "Validation proof SHA mismatch: expected preflight source $PREFLIGHT_RELEASE_SHA, got $VALIDATION_RELEASE_SHA" >&2
             exit 1
           fi
 

@@ -7,6 +7,10 @@ on:
         description: Existing OpenClaw release tag to validate on macOS (for example v2026.3.22 or v2026.3.22-beta.1)
         required: true
         type: string
+      source_ref:
+        description: Optional public openclaw/openclaw source ref to validate instead of the tag, for release-branch-only packaging fixes after npm/tag publication
+        required: false
+        type: string
 
 concurrency:
   group: openclaw-macos-validate-${{ inputs.tag }}
@@ -39,13 +43,28 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
 
-      - name: Clone selected public source tag
+      - name: Clone selected public source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
         run: |
           set -euo pipefail
           git clone --filter=blob:none https://github.com/openclaw/openclaw.git source
-          git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
+          if [[ -z "${SOURCE_REF}" ]]; then
+            git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
+            exit 0
+          fi
+          if [[ "${SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+            git -C source fetch --filter=blob:none origin "${SOURCE_REF}"
+            git -C source checkout --detach "${SOURCE_REF}"
+            exit 0
+          fi
+          if [[ "${SOURCE_REF}" != "main" && ! "${SOURCE_REF}" =~ ^release/[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
+            echo "Invalid source_ref: ${SOURCE_REF}" >&2
+            exit 1
+          fi
+          git -C source fetch --filter=blob:none origin "+refs/heads/${SOURCE_REF}:refs/remotes/origin/${SOURCE_REF}"
+          git -C source checkout --detach "refs/remotes/origin/${SOURCE_REF}"
 
       - name: Checkout submodules (retry)
         working-directory: source
