@@ -1,7 +1,8 @@
 # releases-private
 
 Private release automation for OpenClaw's real macOS signing, notarization,
-Sparkle appcast generation, and packaged release artifact generation.
+Sparkle appcast generation, packaged release artifact generation, npm dist-tag
+mutation, optional private runtime checks, and durable release evidence.
 
 The source of truth stays in `openclaw/openclaw`:
 
@@ -11,8 +12,10 @@ The source of truth stays in `openclaw/openclaw`:
 - npm publish workflow
 - `appcast.xml` on `main`
 
-This repo exists so Apple signing, notarization, and Sparkle signing do not
-live in `openclaw/openclaw`.
+This repo exists so release authority, private credentials, privileged
+workflows, and durable release evidence do not live in `openclaw/openclaw`.
+Public source, reusable test harnesses, and normal package publication stay in
+the public repo.
 
 ## Workflow
 
@@ -90,10 +93,53 @@ live in `openclaw/openclaw`.
 
 ## Release evidence ledger
 
-The manual `OpenClaw Release Evidence` workflow records durable release
-summaries under `evidence/<release-id>/`. Use it after or during a release train
-to turn the relevant public and private GitHub Actions run ids into a private,
-searchable evidence record.
+The manual `OpenClaw Release Evidence` workflow is the durable release ledger.
+It does not run tests and it does not publish anything. It takes the GitHub
+Actions run ids that already proved a release candidate, fetches their run,
+job, and artifact metadata, writes a human-readable summary plus machine-readable
+JSON, and commits that record under `evidence/<release-id>/`.
+
+Use it when a release train needs a private, searchable, long-lived record of
+what was validated. GitHub Actions summaries are the immediate operator UI and
+Actions artifacts are the raw log store, but both are tied to individual run
+pages. The evidence ledger is the canonical release-history index for:
+
+- release validation runs from `openclaw/openclaw`
+- package acceptance runs from `openclaw/openclaw`
+- private mac validation or publish runs from this repo
+- private cross-OS release checks from this repo
+- npm dist-tag operations from this repo
+- advisory runs that informed a release decision
+
+Run the evidence workflow during or after a release train, usually once there is
+enough signal to make a release decision. It is fine to rerun it for the same
+`release_id`; the workflow overwrites that directory with the latest metadata
+and commits the update.
+
+### Inputs
+
+`release_id` names the evidence directory. Use the public package or tag identity
+when possible:
+
+```text
+2026.4.27-beta.1
+2026.4.27
+2026.4.27-1
+```
+
+`release_ref` is optional and should be the public tag, release branch, or full
+SHA that the evidence covers.
+
+`package_spec` is optional and should be the npm package identity when the
+evidence covers a published or candidate package, for example:
+
+```text
+openclaw@2026.4.27-beta.1
+openclaw@beta
+openclaw@2026.4.27
+```
+
+`notes` is optional release-manager context. Keep it short and free of secrets.
 
 The workflow input `runs` is one run per line:
 
@@ -109,18 +155,66 @@ package-acceptance openclaw/openclaw 24972500000 blocking
 private-cross-os openclaw/releases-private 24972511111 advisory
 ```
 
-Each run writes:
+Recommended labels are lowercase, dash-separated, and stable across releases:
+
+```text
+full-release-validation
+package-acceptance
+npm-preflight
+npm-publish
+npm-dist-tags
+macos-validate
+macos-preflight
+macos-publish
+private-cross-os
+qa-lab-all-lanes
+```
+
+Mark a run as `blocking` when a release should not proceed without it passing.
+Mark a run as `advisory` when it informed the decision but should not fail the
+release by itself, such as broad provider/media checks, experimental VM lanes,
+or known-flaky third-party-service coverage.
+
+### Outputs
+
+Each evidence run writes:
 
 - `evidence/<release-id>/release-evidence.md`
 - `evidence/<release-id>/release-evidence.json`
 - `evidence/<release-id>/index.json`
 - `evidence/<release-id>/runs/<label>.json`
 
-Store summaries, run URLs, artifact metadata, timings, pass/fail state, and
-short release-manager notes here. Do not commit raw logs, provider prompts or
-responses, Matrix/Telegram/Discord transcripts, signing material, token-bearing
-config, or other secret-bearing payloads. Raw logs should stay in GitHub Actions
-artifacts.
+`release-evidence.md` is the operator-facing summary. It includes blocking and
+advisory counts, run URLs, workflow names, refs, SHAs, artifact counts, and a
+short failure section.
+
+`release-evidence.json` is the machine-readable manifest for later tooling. It
+contains the same release metadata plus normalized run, job, and artifact
+metadata.
+
+`index.json` is the small pointer file for listing evidence directories without
+loading the full manifest.
+
+`runs/<label>.json` stores the normalized metadata for each individual run so a
+failed or interesting shard can be inspected directly.
+
+### Storage policy
+
+Store only summaries, run URLs, artifact metadata, timings, pass/fail state,
+SHAs, package specs, and short release-manager notes here.
+
+Do not commit:
+
+- raw logs
+- provider prompts or responses
+- Matrix, Telegram, Discord, or other live-channel transcripts
+- signing material, certificates, notarization credentials, or Sparkle keys
+- token-bearing npm, GitHub, Apple, channel, or provider config
+- downloaded release artifacts, `.zip`, `.dmg`, `.tgz`, or dSYM payloads
+- secret-bearing environment dumps
+
+Raw logs and bulky proof artifacts should stay in GitHub Actions artifacts. The
+ledger links to those runs and artifacts instead of vendoring them into git.
 
 ## Required `mac-release` environment secrets
 
