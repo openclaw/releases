@@ -97,7 +97,8 @@ The manual `OpenClaw Release Evidence` workflow is the durable release ledger.
 It does not run tests and it does not publish anything. It takes the GitHub
 Actions run ids that already proved a release candidate, fetches their run,
 job, and artifact metadata, writes a human-readable summary plus machine-readable
-JSON, and commits that record under `evidence/<release-id>/`.
+JSON, and opens a pull request that records the result under
+`evidence/<release-id>/`.
 
 Use it when a release train needs a private, searchable, long-lived record of
 what was validated. GitHub Actions summaries are the immediate operator UI and
@@ -114,7 +115,7 @@ pages. The evidence ledger is the canonical release-history index for:
 Run the evidence workflow during or after a release train, usually once there is
 enough signal to make a release decision. It is fine to rerun it for the same
 `release_id`; the workflow overwrites that directory with the latest metadata
-and commits the update.
+on a new evidence branch and opens a pull request for review and merge.
 
 ### Inputs
 

@@ -41,6 +41,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout private release repo
         uses: actions/checkout@v6
@@ -84,15 +85,26 @@ jobs:
             echo "Evidence path: \`$evidence_md\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit evidence
+      - name: Commit evidence and open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          evidence_path="evidence/${{ inputs.release_id }}"
+          branch="release-evidence/${{ inputs.release_id }}-${GITHUB_RUN_ID}"
           git config user.name "openclaw-release-bot"
           git config user.email "release-bot@openclaw.ai"
-          git add "evidence/${{ inputs.release_id }}"
+          git checkout -B "${branch}"
+          git add "${evidence_path}"
           if git diff --cached --quiet; then
             echo "No evidence changes to commit."
             exit 0
           fi
           git commit -m "Evidence: record ${{ inputs.release_id }}"
-          git push
+          git push --force-with-lease origin "${branch}"
+          gh pr create \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --head "${branch}" \
+            --title "Evidence: record ${{ inputs.release_id }}" \
+            --body "Records release evidence for \`${{ inputs.release_id }}\` under \`${evidence_path}/\`."
