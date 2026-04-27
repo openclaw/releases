@@ -117,6 +117,40 @@ enough signal to make a release decision. It is fine to rerun it for the same
 `release_id`; the workflow overwrites that directory with the latest metadata
 on a new evidence branch and opens a pull request for review and merge.
 
+### Full validation auto-ingest
+
+`OpenClaw Release Evidence From Full Validation` is the preferred companion for
+the public `Full Release Validation` workflow. It takes a completed
+`openclaw/openclaw` full-validation run id, reads that parent run's logs,
+extracts the child `CI`, `OpenClaw Release Checks`, and optional
+`NPM Telegram Beta E2E` run ids, then writes the same evidence directory and
+opens the same kind of pull request.
+
+This lets release validation and evidence stay coupled without moving private
+report storage or write access into the public repo. The public
+`Full Release Validation` workflow can request this automatically at the end of
+the run when the public repo has an
+`OPENCLAW_RELEASES_PRIVATE_DISPATCH_TOKEN` secret with permission to dispatch
+events to `openclaw/releases-private`. If the secret is absent, full validation
+still runs normally and evidence can be ingested manually from the completed
+run id.
+
+Manual ingest example:
+
+```bash
+gh workflow run openclaw-release-evidence-from-full-validation.yml \
+  --repo openclaw/releases-private \
+  --ref main \
+  -f full_validation_run_id=24977011361 \
+  -f release_id=2026.4.24 \
+  -f release_ref=v2026.4.24 \
+  -f package_spec=openclaw@2026.4.24
+```
+
+The workflow is concurrency-scoped by `release_id`, so reports for different
+releases can run in parallel. Multiple updates for the same release serialize
+to avoid competing evidence PRs.
+
 ### Inputs
 
 `release_id` names the evidence directory. Use the public package or tag identity

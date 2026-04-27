@@ -1,0 +1,114 @@
+name: OpenClaw Release Evidence From Full Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      full_validation_run_id:
+        description: Public openclaw/openclaw Full Release Validation run id
+        required: true
+        type: string
+      release_id:
+        description: Release evidence directory name, for example 2026.4.27-beta.1
+        required: true
+        type: string
+      release_ref:
+        description: Optional public OpenClaw release ref, tag, branch, or SHA
+        required: false
+        default: ""
+        type: string
+      package_spec:
+        description: Optional package spec covered by this evidence, for example openclaw@2026.4.27-beta.1
+        required: false
+        default: ""
+        type: string
+      notes:
+        description: Optional release-manager notes to append to the private evidence markdown
+        required: false
+        default: ""
+        type: string
+  repository_dispatch:
+    types:
+      - openclaw_full_release_validation_completed
+
+concurrency:
+  group: openclaw-release-evidence-from-full-validation-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_id || inputs.release_id }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NODE_VERSION: "24.x"
+  FULL_VALIDATION_RUN_ID: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.full_validation_run_id || inputs.full_validation_run_id }}
+  RELEASE_ID: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_id || inputs.release_id }}
+  RELEASE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_ref || inputs.release_ref }}
+  PACKAGE_SPEC: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.package_spec || inputs.package_spec }}
+  NOTES: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.notes || inputs.notes }}
+
+jobs:
+  write_evidence:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout private release repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Write workflow notes
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/openclaw-release-evidence"
+          printf '%s\n' "$NOTES" > "$RUNNER_TEMP/openclaw-release-evidence/notes.md"
+
+      - name: Generate release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/openclaw-release-evidence-from-full-validation.mjs \
+            --full-validation-run-id "$FULL_VALIDATION_RUN_ID" \
+            --release-id "$RELEASE_ID" \
+            --release-ref "$RELEASE_REF" \
+            --package-spec "$PACKAGE_SPEC" \
+            --notes-file "$RUNNER_TEMP/openclaw-release-evidence/notes.md"
+
+      - name: Append run summary
+        run: |
+          set -euo pipefail
+          evidence_md="evidence/${RELEASE_ID}/release-evidence.md"
+          {
+            cat "$evidence_md"
+            echo
+            echo "Evidence path: \`$evidence_md\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit evidence and open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          evidence_path="evidence/${RELEASE_ID}"
+          branch="release-evidence/${RELEASE_ID}-${GITHUB_RUN_ID}"
+          git config user.name "openclaw-release-bot"
+          git config user.email "release-bot@openclaw.ai"
+          git checkout -B "${branch}"
+          git add "${evidence_path}"
+          if git diff --cached --quiet; then
+            echo "No evidence changes to commit."
+            exit 0
+          fi
+          git commit -m "Evidence: record ${RELEASE_ID}"
+          git push --force-with-lease origin "${branch}"
+          gh pr create \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --head "${branch}" \
+            --title "Evidence: record ${RELEASE_ID}" \
+            --body "Records release evidence for \`${RELEASE_ID}\` under \`${evidence_path}/\` from Full Release Validation \`${FULL_VALIDATION_RUN_ID}\`."
