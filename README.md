@@ -24,6 +24,8 @@ live in `openclaw/openclaw`.
   `.github/workflows/openclaw-cross-os-release-checks.yml`
 - Private npm dist-tag workflow:
   `.github/workflows/openclaw-npm-dist-tags.yml`
+- Private release evidence workflow:
+  `.github/workflows/openclaw-release-evidence.yml`
 - The validation workflow is the required `swift test` lane for release
   readiness, and each successful run uploads a `macos-validate-<tag>` proof
   artifact. It does not build, sign, notarize, package, or upload release
@@ -85,6 +87,40 @@ live in `openclaw/openclaw`.
   - a successful private validation run via `validate_run_id`
 - After a successful stable publish, an agent or maintainer must download that
   artifact and commit `appcast.xml` to `openclaw/openclaw` `main`.
+
+## Release evidence ledger
+
+The manual `OpenClaw Release Evidence` workflow records durable release
+summaries under `evidence/<release-id>/`. Use it after or during a release train
+to turn the relevant public and private GitHub Actions run ids into a private,
+searchable evidence record.
+
+The workflow input `runs` is one run per line:
+
+```text
+<label> <owner/repo> <run-id> <blocking|advisory>
+```
+
+Example:
+
+```text
+full-release-validation openclaw/openclaw 24972498713 blocking
+package-acceptance openclaw/openclaw 24972500000 blocking
+private-cross-os openclaw/releases-private 24972511111 advisory
+```
+
+Each run writes:
+
+- `evidence/<release-id>/release-evidence.md`
+- `evidence/<release-id>/release-evidence.json`
+- `evidence/<release-id>/index.json`
+- `evidence/<release-id>/runs/<label>.json`
+
+Store summaries, run URLs, artifact metadata, timings, pass/fail state, and
+short release-manager notes here. Do not commit raw logs, provider prompts or
+responses, Matrix/Telegram/Discord transcripts, signing material, token-bearing
+config, or other secret-bearing payloads. Raw logs should stay in GitHub Actions
+artifacts.
 
 ## Required `mac-release` environment secrets
 
