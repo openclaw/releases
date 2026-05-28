@@ -1,6 +1,6 @@
-![OpenClaw Releases banner](docs/assets/readme-banner.jpg)
-
 # OpenClaw Releases
+
+![OpenClaw Releases banner](docs/assets/readme-banner.jpg)
 
 Release automation and evidence ledger for OpenClaw.
 
