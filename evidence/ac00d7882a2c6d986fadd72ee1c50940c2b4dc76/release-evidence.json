@@ -1,0 +1,604 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-04T03:01:16.969Z",
+  "generatedBy": {
+    "repository": "openclaw/releases",
+    "runId": 25298876370,
+    "workflow": "OpenClaw Release Evidence From Full Validation"
+  },
+  "release": {
+    "id": "ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+    "ref": "ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+    "packageSpec": ""
+  },
+  "provenance": {
+    "releaseRef": {
+      "input": "ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+      "status": "resolved",
+      "kind": "sha",
+      "name": "ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+      "resolvedSha": "ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+      "matchingRunLabels": [
+        "full-release-validation",
+        "release-checks"
+      ]
+    },
+    "npmPackage": {
+      "provided": false,
+      "status": "not-recorded",
+      "note": "No package spec was recorded for this evidence run; npm release matching cannot be proven from this report."
+    },
+    "npmGitHeadMatchesReleaseRef": false,
+    "npmGitHeadMatchesRun": [],
+    "packageSpecRecorded": false
+  },
+  "sourceRepositories": [
+    "openclaw/openclaw"
+  ],
+  "summary": {
+    "blockingPassed": 0,
+    "blockingFailed": 1,
+    "blockingSkipped": 0,
+    "blockingIncomplete": 0,
+    "advisoryPassed": 0,
+    "advisoryFailed": 1,
+    "advisorySkipped": 0,
+    "advisoryIncomplete": 0
+  },
+  "runs": [
+    {
+      "label": "full-release-validation",
+      "repo": "openclaw/openclaw",
+      "runId": 25298725875,
+      "blocking": false,
+      "status": "completed",
+      "conclusion": "failure",
+      "workflowName": "Full Release Validation",
+      "event": "workflow_dispatch",
+      "headBranch": "release-ci/ac00d7882a2c-1777863295010",
+      "headSha": "ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+      "path": ".github/workflows/full-release-validation.yml",
+      "createdAt": "2026-05-04T02:55:00Z",
+      "updatedAt": "2026-05-04T03:01:06Z",
+      "runStartedAt": "2026-05-04T02:55:00Z",
+      "durationMs": 366000,
+      "totalJobDurationMs": 356000,
+      "maxQueueDurationMs": 361000,
+      "slowestJobs": [
+        {
+          "id": 74161759046,
+          "name": "Run release/live/Docker/QA validation",
+          "conclusion": "success",
+          "durationMs": 345000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759046"
+        },
+        {
+          "id": 74161748253,
+          "name": "Resolve target ref",
+          "conclusion": "success",
+          "durationMs": 7000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161748253"
+        },
+        {
+          "id": 74162133772,
+          "name": "Verify full validation",
+          "conclusion": "failure",
+          "durationMs": 4000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74162133772"
+        },
+        {
+          "id": 74161759211,
+          "name": "Prepare release package artifact",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759211"
+        },
+        {
+          "id": 74161759247,
+          "name": "Run normal full CI",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759247"
+        },
+        {
+          "id": 74161759303,
+          "name": "Run package Telegram E2E",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759303"
+        },
+        {
+          "id": 74161759304,
+          "name": "Run plugin prerelease validation",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759304"
+        }
+      ],
+      "longestQueues": [
+        {
+          "id": 74162133772,
+          "name": "Verify full validation",
+          "conclusion": "failure",
+          "durationMs": 4000,
+          "queueDurationMs": 361000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74162133772"
+        },
+        {
+          "id": 74161759046,
+          "name": "Run release/live/Docker/QA validation",
+          "conclusion": "success",
+          "durationMs": 345000,
+          "queueDurationMs": 13000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759046"
+        },
+        {
+          "id": 74161759211,
+          "name": "Prepare release package artifact",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759211"
+        },
+        {
+          "id": 74161759247,
+          "name": "Run normal full CI",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759247"
+        },
+        {
+          "id": 74161759303,
+          "name": "Run package Telegram E2E",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759303"
+        },
+        {
+          "id": 74161759304,
+          "name": "Run plugin prerelease validation",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759304"
+        },
+        {
+          "id": 74161748253,
+          "name": "Resolve target ref",
+          "conclusion": "success",
+          "durationMs": 7000,
+          "queueDurationMs": 4000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161748253"
+        }
+      ],
+      "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875",
+      "jobs": [
+        {
+          "id": 74161748253,
+          "name": "Resolve target ref",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-04T02:55:04Z",
+          "completedAt": "2026-05-04T02:55:11Z",
+          "durationMs": 7000,
+          "queueDurationMs": 4000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161748253"
+        },
+        {
+          "id": 74161759046,
+          "name": "Run release/live/Docker/QA validation",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-04T02:55:13Z",
+          "completedAt": "2026-05-04T03:00:58Z",
+          "durationMs": 345000,
+          "queueDurationMs": 13000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759046"
+        },
+        {
+          "id": 74161759211,
+          "name": "Prepare release package artifact",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:55:11Z",
+          "completedAt": "2026-05-04T02:55:11Z",
+          "durationMs": 0,
+          "queueDurationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759211"
+        },
+        {
+          "id": 74161759247,
+          "name": "Run normal full CI",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:55:11Z",
+          "completedAt": "2026-05-04T02:55:11Z",
+          "durationMs": 0,
+          "queueDurationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759247"
+        },
+        {
+          "id": 74161759303,
+          "name": "Run package Telegram E2E",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:55:11Z",
+          "completedAt": "2026-05-04T02:55:11Z",
+          "durationMs": 0,
+          "queueDurationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759303"
+        },
+        {
+          "id": 74161759304,
+          "name": "Run plugin prerelease validation",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:55:11Z",
+          "completedAt": "2026-05-04T02:55:11Z",
+          "durationMs": 0,
+          "queueDurationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74161759304"
+        },
+        {
+          "id": 74162133772,
+          "name": "Verify full validation",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-05-04T03:01:01Z",
+          "completedAt": "2026-05-04T03:01:05Z",
+          "durationMs": 4000,
+          "queueDurationMs": 361000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298725875/job/74162133772"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "label": "release-checks",
+      "repo": "openclaw/openclaw",
+      "runId": 25298733934,
+      "blocking": true,
+      "status": "completed",
+      "conclusion": "failure",
+      "workflowName": "OpenClaw Release Checks",
+      "event": "workflow_dispatch",
+      "headBranch": "release-ci/ac00d7882a2c-1777863295010",
+      "headSha": "ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+      "path": ".github/workflows/openclaw-release-checks.yml",
+      "createdAt": "2026-05-04T02:55:18Z",
+      "updatedAt": "2026-05-04T03:00:34Z",
+      "runStartedAt": "2026-05-04T02:55:18Z",
+      "durationMs": 316000,
+      "totalJobDurationMs": 485000,
+      "maxQueueDurationMs": 312000,
+      "slowestJobs": [
+        {
+          "id": 74161834428,
+          "name": "Run QA Lab live Slack lane",
+          "conclusion": "failure",
+          "durationMs": 241000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834428"
+        },
+        {
+          "id": 74161834423,
+          "name": "Run QA Lab live Matrix lane",
+          "conclusion": "success",
+          "durationMs": 114000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834423"
+        },
+        {
+          "id": 74161834427,
+          "name": "Run QA Lab live Telegram lane",
+          "conclusion": "success",
+          "durationMs": 64000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834427"
+        },
+        {
+          "id": 74161769792,
+          "name": "resolve_target",
+          "conclusion": "success",
+          "durationMs": 63000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161769792"
+        },
+        {
+          "id": 74162095643,
+          "name": "Verify release checks",
+          "conclusion": "failure",
+          "durationMs": 3000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74162095643"
+        },
+        {
+          "id": 74161834515,
+          "name": "Run QA Lab parity lane (${{ matrix.lane }})",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834515"
+        },
+        {
+          "id": 74161834554,
+          "name": "Run repo/live E2E validation",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834554"
+        },
+        {
+          "id": 74161834572,
+          "name": "Run QA Lab parity report",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834572"
+        },
+        {
+          "id": 74161834578,
+          "name": "Prepare release package artifact",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834578"
+        },
+        {
+          "id": 74161834616,
+          "name": "cross_os_release_checks",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834616"
+        }
+      ],
+      "longestQueues": [
+        {
+          "id": 74162095643,
+          "name": "Verify release checks",
+          "conclusion": "failure",
+          "durationMs": 3000,
+          "queueDurationMs": 312000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74162095643"
+        },
+        {
+          "id": 74161834423,
+          "name": "Run QA Lab live Matrix lane",
+          "conclusion": "success",
+          "durationMs": 114000,
+          "queueDurationMs": 69000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834423"
+        },
+        {
+          "id": 74161834427,
+          "name": "Run QA Lab live Telegram lane",
+          "conclusion": "success",
+          "durationMs": 64000,
+          "queueDurationMs": 69000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834427"
+        },
+        {
+          "id": 74161834428,
+          "name": "Run QA Lab live Slack lane",
+          "conclusion": "failure",
+          "durationMs": 241000,
+          "queueDurationMs": 69000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834428"
+        },
+        {
+          "id": 74161834515,
+          "name": "Run QA Lab parity lane (${{ matrix.lane }})",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834515"
+        },
+        {
+          "id": 74161834554,
+          "name": "Run repo/live E2E validation",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834554"
+        },
+        {
+          "id": 74161834572,
+          "name": "Run QA Lab parity report",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834572"
+        },
+        {
+          "id": 74161834578,
+          "name": "Prepare release package artifact",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834578"
+        },
+        {
+          "id": 74161834616,
+          "name": "cross_os_release_checks",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834616"
+        },
+        {
+          "id": 74161834638,
+          "name": "Run package acceptance",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834638"
+        }
+      ],
+      "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934",
+      "jobs": [
+        {
+          "id": 74161769792,
+          "name": "resolve_target",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-04T02:55:22Z",
+          "completedAt": "2026-05-04T02:56:25Z",
+          "durationMs": 63000,
+          "queueDurationMs": 4000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161769792"
+        },
+        {
+          "id": 74161834423,
+          "name": "Run QA Lab live Matrix lane",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-04T02:56:27Z",
+          "completedAt": "2026-05-04T02:58:21Z",
+          "durationMs": 114000,
+          "queueDurationMs": 69000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834423"
+        },
+        {
+          "id": 74161834427,
+          "name": "Run QA Lab live Telegram lane",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-04T02:56:27Z",
+          "completedAt": "2026-05-04T02:57:31Z",
+          "durationMs": 64000,
+          "queueDurationMs": 69000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834427"
+        },
+        {
+          "id": 74161834428,
+          "name": "Run QA Lab live Slack lane",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-05-04T02:56:27Z",
+          "completedAt": "2026-05-04T03:00:28Z",
+          "durationMs": 241000,
+          "queueDurationMs": 69000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834428"
+        },
+        {
+          "id": 74161834515,
+          "name": "Run QA Lab parity lane (${{ matrix.lane }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:56:26Z",
+          "completedAt": "2026-05-04T02:56:26Z",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834515"
+        },
+        {
+          "id": 74161834554,
+          "name": "Run repo/live E2E validation",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:56:26Z",
+          "completedAt": "2026-05-04T02:56:26Z",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834554"
+        },
+        {
+          "id": 74161834572,
+          "name": "Run QA Lab parity report",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:56:26Z",
+          "completedAt": "2026-05-04T02:56:26Z",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834572"
+        },
+        {
+          "id": 74161834578,
+          "name": "Prepare release package artifact",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:56:26Z",
+          "completedAt": "2026-05-04T02:56:26Z",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834578"
+        },
+        {
+          "id": 74161834616,
+          "name": "cross_os_release_checks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:56:26Z",
+          "completedAt": "2026-05-04T02:56:26Z",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834616"
+        },
+        {
+          "id": 74161834638,
+          "name": "Run package acceptance",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:56:26Z",
+          "completedAt": "2026-05-04T02:56:26Z",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834638"
+        },
+        {
+          "id": 74161834643,
+          "name": "install_smoke_release_checks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:56:26Z",
+          "completedAt": "2026-05-04T02:56:26Z",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834643"
+        },
+        {
+          "id": 74161834701,
+          "name": "Run Docker release-path validation",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-04T02:56:26Z",
+          "completedAt": "2026-05-04T02:56:26Z",
+          "durationMs": 0,
+          "queueDurationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74161834701"
+        },
+        {
+          "id": 74162095643,
+          "name": "Verify release checks",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-05-04T03:00:30Z",
+          "completedAt": "2026-05-04T03:00:33Z",
+          "durationMs": 3000,
+          "queueDurationMs": 312000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25298733934/job/74162095643"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 6775997420,
+          "name": "release-qa-live-slack-ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+          "sizeInBytes": 2978,
+          "expired": false,
+          "createdAt": "2026-05-04T03:00:24Z",
+          "expiresAt": "2026-05-18T03:00:23Z"
+        },
+        {
+          "id": 6775983280,
+          "name": "release-qa-live-matrix-ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+          "sizeInBytes": 299197,
+          "expired": false,
+          "createdAt": "2026-05-04T02:58:17Z",
+          "expiresAt": "2026-05-18T02:58:15Z"
+        },
+        {
+          "id": 6775977889,
+          "name": "release-qa-live-telegram-ac00d7882a2c6d986fadd72ee1c50940c2b4dc76",
+          "sizeInBytes": 2604,
+          "expired": false,
+          "createdAt": "2026-05-04T02:57:27Z",
+          "expiresAt": "2026-05-18T02:57:25Z"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-28T00:00:42.291Z",
+  "generatedBy": {
+    "repository": "openclaw/releases",
+    "runId": 25026132512,
+    "workflow": "OpenClaw Release Evidence From Full Validation"
+  },
+  "release": {
+    "id": "09d044e0f4",
+    "ref": "09d044e0f4",
+    "packageSpec": ""
+  },
+  "provenance": {
+    "releaseRef": {
+      "input": "09d044e0f4",
+      "status": "not-found",
+      "note": "Could not resolve release ref in openclaw/openclaw.",
+      "matchingRunLabels": []
+    },
+    "npmPackage": {
+      "provided": false,
+      "status": "not-recorded",
+      "note": "No package spec was recorded for this evidence run; npm release matching cannot be proven from this report."
+    },
+    "npmGitHeadMatchesReleaseRef": false,
+    "npmGitHeadMatchesRun": [],
+    "packageSpecRecorded": false
+  },
+  "sourceRepositories": [
+    "openclaw/openclaw"
+  ],
+  "summary": {
+    "blockingPassed": 0,
+    "blockingFailed": 1,
+    "blockingSkipped": 0,
+    "blockingIncomplete": 0,
+    "advisoryPassed": 0,
+    "advisoryFailed": 0,
+    "advisorySkipped": 0,
+    "advisoryIncomplete": 0
+  },
+  "runs": [
+    {
+      "label": "full-release-validation",
+      "repo": "openclaw/openclaw",
+      "runId": 25026100167,
+      "blocking": true,
+      "status": "completed",
+      "conclusion": "failure",
+      "workflowName": "Full Release Validation",
+      "event": "workflow_dispatch",
+      "headBranch": "release/2026.4.26",
+      "headSha": "09d044e0f494fe0d8a574de4aa9168195e667c1d",
+      "path": ".github/workflows/full-release-validation.yml",
+      "createdAt": "2026-04-27T23:59:40Z",
+      "updatedAt": "2026-04-28T00:00:33Z",
+      "runStartedAt": "2026-04-27T23:59:40Z",
+      "durationMs": 53000,
+      "totalJobDurationMs": 45000,
+      "slowestJobs": [
+        {
+          "id": 73297425803,
+          "name": "Resolve target ref",
+          "conclusion": "failure",
+          "durationMs": 43000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25026100167/job/73297425803"
+        },
+        {
+          "id": 73297512055,
+          "name": "Verify full validation",
+          "conclusion": "failure",
+          "durationMs": 2000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25026100167/job/73297512055"
+        }
+      ],
+      "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25026100167",
+      "jobs": [
+        {
+          "id": 73297425803,
+          "name": "Resolve target ref",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-04-27T23:59:45Z",
+          "completedAt": "2026-04-28T00:00:28Z",
+          "durationMs": 43000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25026100167/job/73297425803"
+        },
+        {
+          "id": 73297511925,
+          "name": "Run post-publish Telegram E2E",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-28T00:00:29Z",
+          "completedAt": "2026-04-28T00:00:28Z",
+          "durationMs": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25026100167/job/73297511925"
+        },
+        {
+          "id": 73297511932,
+          "name": "Run normal full CI",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-28T00:00:29Z",
+          "completedAt": "2026-04-28T00:00:28Z",
+          "durationMs": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25026100167/job/73297511932"
+        },
+        {
+          "id": 73297512055,
+          "name": "Verify full validation",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-04-28T00:00:30Z",
+          "completedAt": "2026-04-28T00:00:32Z",
+          "durationMs": 2000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25026100167/job/73297512055"
+        },
+        {
+          "id": 73297512124,
+          "name": "Run release/live/Docker/QA validation",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-28T00:00:29Z",
+          "completedAt": "2026-04-28T00:00:28Z",
+          "durationMs": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25026100167/job/73297512124"
+        }
+      ],
+      "artifacts": []
+    }
+  ]
+}

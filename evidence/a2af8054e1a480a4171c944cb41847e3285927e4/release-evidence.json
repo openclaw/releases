@@ -1,0 +1,1303 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-27T14:19:54.588Z",
+  "generatedBy": {
+    "repository": "openclaw/releases",
+    "runId": 25000486521,
+    "workflow": "OpenClaw Release Evidence From Full Validation"
+  },
+  "release": {
+    "id": "a2af8054e1a480a4171c944cb41847e3285927e4",
+    "ref": "a2af8054e1a480a4171c944cb41847e3285927e4",
+    "packageSpec": ""
+  },
+  "sourceRepositories": [
+    "openclaw/openclaw"
+  ],
+  "summary": {
+    "blockingPassed": 0,
+    "blockingFailed": 1,
+    "blockingSkipped": 0,
+    "blockingIncomplete": 1,
+    "advisoryPassed": 0,
+    "advisoryFailed": 1,
+    "advisorySkipped": 0,
+    "advisoryIncomplete": 0
+  },
+  "runs": [
+    {
+      "label": "full-release-validation",
+      "repo": "openclaw/openclaw",
+      "runId": 25000113033,
+      "blocking": false,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "workflowName": "Full Release Validation",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "a2af8054e1a480a4171c944cb41847e3285927e4",
+      "path": ".github/workflows/full-release-validation.yml",
+      "createdAt": "2026-04-27T14:12:17Z",
+      "updatedAt": "2026-04-27T14:19:44Z",
+      "runStartedAt": "2026-04-27T14:12:17Z",
+      "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000113033",
+      "jobs": [
+        {
+          "id": 73207603352,
+          "name": "Resolve target ref",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:12:22Z",
+          "completedAt": "2026-04-27T14:13:06Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000113033/job/73207603352"
+        },
+        {
+          "id": 73207744766,
+          "name": "Run normal full CI",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:13:08Z",
+          "completedAt": "2026-04-27T14:19:15Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000113033/job/73207744766"
+        },
+        {
+          "id": 73207744815,
+          "name": "Run release/live/Docker/QA validation",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:13:08Z",
+          "completedAt": "2026-04-27T14:19:15Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000113033/job/73207744815"
+        },
+        {
+          "id": 73207745294,
+          "name": "Run post-publish Telegram E2E",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:13:06Z",
+          "completedAt": "2026-04-27T14:13:06Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000113033/job/73207745294"
+        },
+        {
+          "id": 73208883617,
+          "name": "Verify full validation",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-04-27T14:19:30Z",
+          "completedAt": "2026-04-27T14:19:43Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000113033/job/73208883617"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "label": "normal-ci",
+      "repo": "openclaw/openclaw",
+      "runId": 25000160296,
+      "blocking": true,
+      "status": "completed",
+      "conclusion": "cancelled",
+      "workflowName": "CI",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "a2af8054e1a480a4171c944cb41847e3285927e4",
+      "path": ".github/workflows/ci.yml",
+      "createdAt": "2026-04-27T14:13:13Z",
+      "updatedAt": "2026-04-27T14:19:34Z",
+      "runStartedAt": "2026-04-27T14:13:13Z",
+      "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296",
+      "jobs": [
+        {
+          "id": 73207771411,
+          "name": "security-dependency-audit",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:19Z",
+          "completedAt": "2026-04-27T14:13:30Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207771411"
+        },
+        {
+          "id": 73207771553,
+          "name": "preflight",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:18Z",
+          "completedAt": "2026-04-27T14:13:27Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207771553"
+        },
+        {
+          "id": 73207771555,
+          "name": "security-scm-fast",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:18Z",
+          "completedAt": "2026-04-27T14:13:40Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207771555"
+        },
+        {
+          "id": 73207810953,
+          "name": "checks-fast-protocol",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:14:01Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207810953"
+        },
+        {
+          "id": 73207811012,
+          "name": "checks-fast-bundled",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:15Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811012"
+        },
+        {
+          "id": 73207811026,
+          "name": "checks-node-compat-node22",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:31Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811026"
+        },
+        {
+          "id": 73207811027,
+          "name": "build-artifacts",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:20Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811027"
+        },
+        {
+          "id": 73207811065,
+          "name": "checks-fast-contracts-channels-b",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:34Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811065"
+        },
+        {
+          "id": 73207811069,
+          "name": "checks-windows-node-test",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:27Z",
+          "completedAt": "2026-04-27T14:19:28Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811069"
+        },
+        {
+          "id": 73207811082,
+          "name": "checks-fast-contracts-channels-c",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:32Z",
+          "completedAt": "2026-04-27T14:14:51Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811082"
+        },
+        {
+          "id": 73207811086,
+          "name": "checks-node-extensions-shard-1",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811086"
+        },
+        {
+          "id": 73207811087,
+          "name": "skills-python",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:13:43Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811087"
+        },
+        {
+          "id": 73207811090,
+          "name": "check-docs",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:19Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811090"
+        },
+        {
+          "id": 73207811097,
+          "name": "checks-node-extensions-shard-6",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:10Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811097"
+        },
+        {
+          "id": 73207811107,
+          "name": "checks-fast-contracts-plugins",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:08Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811107"
+        },
+        {
+          "id": 73207811110,
+          "name": "checks-fast-contracts-channels-a",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:14:41Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811110"
+        },
+        {
+          "id": 73207811119,
+          "name": "checks-node-extensions-shard-3",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:20Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811119"
+        },
+        {
+          "id": 73207811126,
+          "name": "checks-node-extensions-shard-5",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:33Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811126"
+        },
+        {
+          "id": 73207811159,
+          "name": "check-lint",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:22Z",
+          "completedAt": "2026-04-27T14:19:05Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811159"
+        },
+        {
+          "id": 73207811160,
+          "name": "checks-node-extensions-shard-4",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:31Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811160"
+        },
+        {
+          "id": 73207811196,
+          "name": "check-test-types",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:18Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811196"
+        },
+        {
+          "id": 73207811208,
+          "name": "check-strict-smoke",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:14:06Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811208"
+        },
+        {
+          "id": 73207811216,
+          "name": "check-additional-extension-bundled",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:48Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811216"
+        },
+        {
+          "id": 73207811217,
+          "name": "check-additional-extension-package-boundary",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:07Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811217"
+        },
+        {
+          "id": 73207811224,
+          "name": "checks-node-extensions-shard-2",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:10Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811224"
+        },
+        {
+          "id": 73207811225,
+          "name": "check-prod-types",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:01Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811225"
+        },
+        {
+          "id": 73207811232,
+          "name": "android-test-play",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:18:51Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811232"
+        },
+        {
+          "id": 73207811238,
+          "name": "android-build-play",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811238"
+        },
+        {
+          "id": 73207811257,
+          "name": "check-policy-guards",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:28Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811257"
+        },
+        {
+          "id": 73207811268,
+          "name": "check-additional-boundaries",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:36Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811268"
+        },
+        {
+          "id": 73207811279,
+          "name": "android-test-third-party",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:18Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811279"
+        },
+        {
+          "id": 73207811291,
+          "name": "check-preflight-guards",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:14:02Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811291"
+        },
+        {
+          "id": 73207811299,
+          "name": "check-additional-runtime-topology-architecture",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:26Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811299"
+        },
+        {
+          "id": 73207811426,
+          "name": "check-additional-extension-channels",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:16Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811426"
+        },
+        {
+          "id": 73207811480,
+          "name": "macos-swift",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:41Z",
+          "completedAt": "2026-04-27T14:15:15Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811480"
+        },
+        {
+          "id": 73207811483,
+          "name": "macos-node",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:14:03Z",
+          "completedAt": "2026-04-27T14:14:31Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811483"
+        },
+        {
+          "id": 73207811489,
+          "name": "checks-node-core-src-security",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:32Z",
+          "completedAt": "2026-04-27T14:14:22Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811489"
+        },
+        {
+          "id": 73207811508,
+          "name": "checks-node-core-runtime-media-ui",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:15:07Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811508"
+        },
+        {
+          "id": 73207811512,
+          "name": "checks-node-core-ui",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:11Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811512"
+        },
+        {
+          "id": 73207811540,
+          "name": "checks-node-auto-reply-reply-commands-state-routing",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:15:18Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811540"
+        },
+        {
+          "id": 73207811546,
+          "name": "checks-node-core-runtime-infra",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:31Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811546"
+        },
+        {
+          "id": 73207811550,
+          "name": "checks-node-auto-reply-core-top-level",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:14:14Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811550"
+        },
+        {
+          "id": 73207811554,
+          "name": "checks-node-auto-reply-reply-agent-runner",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:24Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811554"
+        },
+        {
+          "id": 73207811565,
+          "name": "checks-node-agentic-commands",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:14:50Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811565"
+        },
+        {
+          "id": 73207811567,
+          "name": "checks-node-agentic-plugins",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:14:40Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811567"
+        },
+        {
+          "id": 73207811570,
+          "name": "checks-node-agentic-plugin-sdk",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:15:22Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811570"
+        },
+        {
+          "id": 73207811588,
+          "name": "checks-node-agentic-control-plane",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:20Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811588"
+        },
+        {
+          "id": 73207811596,
+          "name": "checks-node-agentic-agents",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:16:24Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811596"
+        },
+        {
+          "id": 73207811606,
+          "name": "checks-node-auto-reply-reply-dispatch",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:15:00Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811606"
+        },
+        {
+          "id": 73207811634,
+          "name": "checks-node-core-fast-support",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:31Z",
+          "completedAt": "2026-04-27T14:14:36Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811634"
+        },
+        {
+          "id": 73207811736,
+          "name": "checks-node-core-runtime-shared",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:30Z",
+          "completedAt": "2026-04-27T14:14:27Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207811736"
+        },
+        {
+          "id": 73207848196,
+          "name": "security-fast",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:44Z",
+          "completedAt": "2026-04-27T14:13:47Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73207848196"
+        },
+        {
+          "id": 73208071159,
+          "name": "checks-fast-contracts-channels",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:14:54Z",
+          "completedAt": "2026-04-27T14:14:56Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73208071159"
+        },
+        {
+          "id": 73208894394,
+          "name": "check",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:19Z",
+          "completedAt": "2026-04-27T14:19:18Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73208894394"
+        },
+        {
+          "id": 73208900674,
+          "name": "check-additional",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:21Z",
+          "completedAt": "2026-04-27T14:19:21Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73208900674"
+        },
+        {
+          "id": 73208900934,
+          "name": "matrix.check_name",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:21Z",
+          "completedAt": "2026-04-27T14:19:21Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73208900934"
+        },
+        {
+          "id": 73208900936,
+          "name": "build-smoke",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:21Z",
+          "completedAt": "2026-04-27T14:19:21Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73208900936"
+        },
+        {
+          "id": 73208900974,
+          "name": "matrix.check_name",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:21Z",
+          "completedAt": "2026-04-27T14:19:21Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73208900974"
+        },
+        {
+          "id": 73208934833,
+          "name": "checks-node-core",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:32Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73208934833"
+        },
+        {
+          "id": 73208939075,
+          "name": "checks-node-extensions",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:33Z",
+          "completedAt": "2026-04-27T14:19:33Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000160296/job/73208939075"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "label": "release-checks",
+      "repo": "openclaw/openclaw",
+      "runId": 25000162299,
+      "blocking": true,
+      "status": "in_progress",
+      "conclusion": null,
+      "workflowName": "OpenClaw Release Checks",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "a2af8054e1a480a4171c944cb41847e3285927e4",
+      "path": ".github/workflows/openclaw-release-checks.yml",
+      "createdAt": "2026-04-27T14:13:15Z",
+      "updatedAt": "2026-04-27T14:18:55Z",
+      "runStartedAt": "2026-04-27T14:13:15Z",
+      "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299",
+      "jobs": [
+        {
+          "id": 73207781452,
+          "name": "resolve_target",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:20Z",
+          "completedAt": "2026-04-27T14:13:57Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207781452"
+        },
+        {
+          "id": 73207899549,
+          "name": "Run QA Lab live Matrix lane",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:33Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207899549"
+        },
+        {
+          "id": 73207899564,
+          "name": "Run QA Lab parity gate",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:31Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207899564"
+        },
+        {
+          "id": 73207899601,
+          "name": "Run QA Lab live Telegram lane",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:09Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207899601"
+        },
+        {
+          "id": 73207899640,
+          "name": "live_and_e2e_release_checks / validate_selected_ref",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:14:00Z",
+          "completedAt": "2026-04-27T14:14:45Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207899640"
+        },
+        {
+          "id": 73207899792,
+          "name": "Run package acceptance / Resolve package candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:13:59Z",
+          "completedAt": "2026-04-27T14:16:31Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207899792"
+        },
+        {
+          "id": 73207899811,
+          "name": "cross_os_release_checks / prepare",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:14:01Z",
+          "completedAt": "2026-04-27T14:16:47Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207899811"
+        },
+        {
+          "id": 73207899896,
+          "name": "install_smoke_release_checks / preflight",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:14:00Z",
+          "completedAt": "2026-04-27T14:14:06Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207899896"
+        },
+        {
+          "id": 73207927531,
+          "name": "install_smoke_release_checks / docker-e2e-fast",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207927531"
+        },
+        {
+          "id": 73207927581,
+          "name": "install_smoke_release_checks / install-smoke",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-04-27T14:18:22Z",
+          "completedAt": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207927581"
+        },
+        {
+          "id": 73207928265,
+          "name": "install_smoke_release_checks / install-smoke-fast",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:14:06Z",
+          "completedAt": "2026-04-27T14:14:06Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73207928265"
+        },
+        {
+          "id": 73208050637,
+          "name": "live_and_e2e_release_checks / validate_release_live_cache",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050637"
+        },
+        {
+          "id": 73208050655,
+          "name": "live_and_e2e_release_checks / validate_special_e2e (openshell-e2e, OpenShell repo E2E, pnpm test:e2e:openshell, 120, true, false)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:15Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050655"
+        },
+        {
+          "id": 73208050665,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (native-live-test, Native live test harnesses, node scripts/test-li...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:30Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050665"
+        },
+        {
+          "id": 73208050673,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (native-live-src-gateway, Native live gateway, node scripts/test-li...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050673"
+        },
+        {
+          "id": 73208050675,
+          "name": "live_and_e2e_release_checks / prepare_docker_e2e_image",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:20Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050675"
+        },
+        {
+          "id": 73208050682,
+          "name": "live_and_e2e_release_checks / Docker live models (OpenCode)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:48Z",
+          "completedAt": "2026-04-27T14:19:15Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050682"
+        },
+        {
+          "id": 73208050683,
+          "name": "live_and_e2e_release_checks / validate_repo_e2e",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050683"
+        },
+        {
+          "id": 73208050689,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (native-live-src-agents, Native live agents, node scripts/test-live...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:33Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050689"
+        },
+        {
+          "id": 73208050698,
+          "name": "live_and_e2e_release_checks / validate_special_e2e (openai-ws-stream-live-e2e, OpenAI WebSocket live E2E, pnpm test:e2e src/age...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": "2026-04-27T14:19:22Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050698"
+        },
+        {
+          "id": 73208050699,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (live-cli-backend-docker, Docker live CLI backend, pnpm test:docker...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050699"
+        },
+        {
+          "id": 73208050710,
+          "name": "live_and_e2e_release_checks / Docker live models (Fireworks)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:48Z",
+          "completedAt": "2026-04-27T14:19:15Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050710"
+        },
+        {
+          "id": 73208050711,
+          "name": "live_and_e2e_release_checks / Docker live models (Anthropic)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:47Z",
+          "completedAt": "2026-04-27T14:19:13Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050711"
+        },
+        {
+          "id": 73208050714,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (live-codex-harness-docker, Docker live Codex harness, pnpm test:do...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050714"
+        },
+        {
+          "id": 73208050715,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (native-live-extensions-a-k, Native live plugins A-K, node scripts/...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:32Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050715"
+        },
+        {
+          "id": 73208050718,
+          "name": "live_and_e2e_release_checks / Docker live models (OpenRouter)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:48Z",
+          "completedAt": "2026-04-27T14:19:14Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050718"
+        },
+        {
+          "id": 73208050719,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (live-acp-bind-docker, Docker live ACP bind, pnpm test:docker:live-...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:33Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050719"
+        },
+        {
+          "id": 73208050722,
+          "name": "live_and_e2e_release_checks / Docker live models (Google)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:48Z",
+          "completedAt": "2026-04-27T14:19:14Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050722"
+        },
+        {
+          "id": 73208050732,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (native-live-extensions-l-z, Native live plugins L-Z, node scripts/...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:11Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050732"
+        },
+        {
+          "id": 73208050734,
+          "name": "live_and_e2e_release_checks / Docker live models (Z.ai)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:47Z",
+          "completedAt": "2026-04-27T14:19:13Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050734"
+        },
+        {
+          "id": 73208050742,
+          "name": "live_and_e2e_release_checks / Docker live models (MiniMax)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:48Z",
+          "completedAt": "2026-04-27T14:19:15Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050742"
+        },
+        {
+          "id": 73208050743,
+          "name": "live_and_e2e_release_checks / Docker live models (OpenAI)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:48Z",
+          "completedAt": "2026-04-27T14:19:14Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050743"
+        },
+        {
+          "id": 73208050794,
+          "name": "live_and_e2e_release_checks / Docker live models (xAI)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:14:47Z",
+          "completedAt": "2026-04-27T14:19:13Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050794"
+        },
+        {
+          "id": 73208050813,
+          "name": "live_and_e2e_release_checks / validate_live_provider_suites (live-gateway-docker, Docker live gateway, pnpm test:docker:live-ga...",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:41Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208050813"
+        },
+        {
+          "id": 73208051211,
+          "name": "live_and_e2e_release_checks / Docker live models (selected providers)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:14:45Z",
+          "completedAt": "2026-04-27T14:14:45Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208051211"
+        },
+        {
+          "id": 73208381226,
+          "name": "Run package acceptance / Docker product acceptance / validate_selected_ref",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-04-27T14:16:34Z",
+          "completedAt": "2026-04-27T14:17:26Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208381226"
+        },
+        {
+          "id": 73208381320,
+          "name": "Run package acceptance / Telegram package acceptance / Run package Telegram E2E",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-04-27T14:18:23Z",
+          "completedAt": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208381320"
+        },
+        {
+          "id": 73208428955,
+          "name": "cross_os_release_checks / Windows / installer fresh",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:44Z",
+          "completedAt": "2026-04-27T14:19:49Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208428955"
+        },
+        {
+          "id": 73208428976,
+          "name": "cross_os_release_checks / Linux / packaged upgrade",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:16:50Z",
+          "completedAt": "2026-04-27T14:19:39Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208428976"
+        },
+        {
+          "id": 73208428991,
+          "name": "cross_os_release_checks / macOS / packaged fresh",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-04-27T14:17:03Z",
+          "completedAt": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208428991"
+        },
+        {
+          "id": 73208428997,
+          "name": "cross_os_release_checks / macOS / packaged upgrade",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-04-27T14:17:03Z",
+          "completedAt": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208428997"
+        },
+        {
+          "id": 73208428998,
+          "name": "cross_os_release_checks / Windows / packaged upgrade",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:16:47Z",
+          "completedAt": "2026-04-27T14:18:54Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208428998"
+        },
+        {
+          "id": 73208429081,
+          "name": "cross_os_release_checks / macOS / installer fresh",
+          "status": "in_progress",
+          "conclusion": null,
+          "startedAt": "2026-04-27T14:17:05Z",
+          "completedAt": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208429081"
+        },
+        {
+          "id": 73208429084,
+          "name": "cross_os_release_checks / Windows / packaged fresh",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:16:47Z",
+          "completedAt": "2026-04-27T14:18:54Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208429084"
+        },
+        {
+          "id": 73208429112,
+          "name": "cross_os_release_checks / Linux / packaged fresh",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:16:51Z",
+          "completedAt": "2026-04-27T14:19:38Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208429112"
+        },
+        {
+          "id": 73208429130,
+          "name": "cross_os_release_checks / Linux / installer fresh",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:16:50Z",
+          "completedAt": "2026-04-27T14:19:39Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208429130"
+        },
+        {
+          "id": 73208546582,
+          "name": "Run package acceptance / Docker product acceptance / prepare_docker_e2e_image",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:18:24Z",
+          "completedAt": "2026-04-27T14:19:51Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208546582"
+        },
+        {
+          "id": 73208547167,
+          "name": "Run package acceptance / Docker product acceptance / Docker live models (${{ matrix.provider_label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:17:26Z",
+          "completedAt": "2026-04-27T14:17:26Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208547167"
+        },
+        {
+          "id": 73208547298,
+          "name": "Run package acceptance / Docker product acceptance / validate_repo_e2e",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:17:26Z",
+          "completedAt": "2026-04-27T14:17:26Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208547298"
+        },
+        {
+          "id": 73208547345,
+          "name": "Run package acceptance / Docker product acceptance / Docker live models (selected providers)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:17:26Z",
+          "completedAt": "2026-04-27T14:17:26Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208547345"
+        },
+        {
+          "id": 73208547389,
+          "name": "Run package acceptance / Docker product acceptance / validate_live_provider_suites",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:17:26Z",
+          "completedAt": "2026-04-27T14:17:26Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208547389"
+        },
+        {
+          "id": 73208547397,
+          "name": "Run package acceptance / Docker product acceptance / validate_release_live_cache",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:17:26Z",
+          "completedAt": "2026-04-27T14:17:26Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208547397"
+        },
+        {
+          "id": 73208547621,
+          "name": "Run package acceptance / Docker product acceptance / validate_special_e2e",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-04-27T14:17:26Z",
+          "completedAt": "2026-04-27T14:17:26Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208547621"
+        },
+        {
+          "id": 73208898322,
+          "name": "live_and_e2e_release_checks / Docker E2E targeted lanes",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:20Z",
+          "completedAt": "2026-04-27T14:19:20Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208898322"
+        },
+        {
+          "id": 73208898357,
+          "name": "live_and_e2e_release_checks / Docker E2E (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:20Z",
+          "completedAt": "2026-04-27T14:19:20Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208898357"
+        },
+        {
+          "id": 73208898537,
+          "name": "live_and_e2e_release_checks / Docker E2E (openwebui)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:20Z",
+          "completedAt": "2026-04-27T14:19:20Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208898537"
+        },
+        {
+          "id": 73208994878,
+          "name": "Run package acceptance / Docker product acceptance / Docker E2E (openwebui)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:52Z",
+          "completedAt": "2026-04-27T14:19:51Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208994878"
+        },
+        {
+          "id": 73208994929,
+          "name": "Run package acceptance / Verify package acceptance",
+          "status": "queued",
+          "conclusion": null,
+          "startedAt": "2026-04-27T14:19:52Z",
+          "completedAt": null,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208994929"
+        },
+        {
+          "id": 73208995093,
+          "name": "Run package acceptance / Docker product acceptance / Docker E2E (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:52Z",
+          "completedAt": "2026-04-27T14:19:51Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208995093"
+        },
+        {
+          "id": 73208995482,
+          "name": "Run package acceptance / Docker product acceptance / Docker E2E targeted lanes",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "startedAt": "2026-04-27T14:19:52Z",
+          "completedAt": "2026-04-27T14:19:51Z",
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25000162299/job/73208995482"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 6662906340,
+          "name": "openclaw-cross-os-release-checks-macos-installer-fresh-25000162299",
+          "sizeInBytes": 5349,
+          "expired": false,
+          "createdAt": "2026-04-27T14:19:49Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662906099,
+          "name": "openclaw-cross-os-release-checks-macos-packaged-fresh-25000162299",
+          "sizeInBytes": 4252,
+          "expired": false,
+          "createdAt": "2026-04-27T14:19:48Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662905859,
+          "name": "openclaw-cross-os-release-checks-macos-packaged-upgrade-25000162299",
+          "sizeInBytes": 5332,
+          "expired": false,
+          "createdAt": "2026-04-27T14:19:47Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662904755,
+          "name": "openclaw-cross-os-release-checks-windows-installer-fresh-25000162299",
+          "sizeInBytes": 1415,
+          "expired": false,
+          "createdAt": "2026-04-27T14:19:44Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662901605,
+          "name": "openclaw-cross-os-release-checks-linux-packaged-fresh-25000162299",
+          "sizeInBytes": 4036,
+          "expired": false,
+          "createdAt": "2026-04-27T14:19:36Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662901491,
+          "name": "openclaw-cross-os-release-checks-linux-packaged-upgrade-25000162299",
+          "sizeInBytes": 5066,
+          "expired": false,
+          "createdAt": "2026-04-27T14:19:35Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662901422,
+          "name": "openclaw-cross-os-release-checks-linux-installer-fresh-25000162299",
+          "sizeInBytes": 5195,
+          "expired": false,
+          "createdAt": "2026-04-27T14:19:35Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662898818,
+          "name": "release-qa-live-matrix-a2af8054e1a480a4171c944cb41847e3285927e4",
+          "sizeInBytes": 55660,
+          "expired": false,
+          "createdAt": "2026-04-27T14:19:28Z",
+          "expiresAt": "2026-05-11T14:19:27Z"
+        },
+        {
+          "id": 6662836553,
+          "name": "openclaw-cross-os-release-checks-baseline-25000162299",
+          "sizeInBytes": 21842984,
+          "expired": false,
+          "createdAt": "2026-04-27T14:16:42Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662835636,
+          "name": "openclaw-cross-os-release-checks-candidate-25000162299",
+          "sizeInBytes": 22104509,
+          "expired": false,
+          "createdAt": "2026-04-27T14:16:40Z",
+          "expiresAt": "2026-07-26T14:13:17Z"
+        },
+        {
+          "id": 6662831469,
+          "name": "package-under-test",
+          "sizeInBytes": 21489706,
+          "expired": false,
+          "createdAt": "2026-04-27T14:16:29Z",
+          "expiresAt": "2026-05-11T14:16:28Z"
+        }
+      ]
+    }
+  ]
+}

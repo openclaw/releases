@@ -1,0 +1,1734 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-10T06:55:41.999Z",
+  "generatedBy": {
+    "repository": "openclaw/releases",
+    "runId": 25622313082,
+    "workflow": "OpenClaw Release Evidence From Full Validation"
+  },
+  "release": {
+    "id": "681b56fc0af9653010446a6004639e5de191b4fb",
+    "ref": "681b56fc0af9653010446a6004639e5de191b4fb",
+    "packageSpec": ""
+  },
+  "provenance": {
+    "releaseRef": {
+      "input": "681b56fc0af9653010446a6004639e5de191b4fb",
+      "status": "resolved",
+      "kind": "sha",
+      "name": "681b56fc0af9653010446a6004639e5de191b4fb",
+      "resolvedSha": "681b56fc0af9653010446a6004639e5de191b4fb",
+      "matchingRunLabels": [
+        "full-release-validation",
+        "release-checks"
+      ]
+    },
+    "npmPackage": {
+      "provided": false,
+      "status": "not-recorded",
+      "note": "No package spec was recorded for this evidence run; npm release matching cannot be proven from this report."
+    },
+    "npmGitHeadMatchesReleaseRef": false,
+    "npmGitHeadMatchesRun": [],
+    "packageSpecRecorded": false
+  },
+  "sourceRepositories": [
+    "openclaw/openclaw"
+  ],
+  "summary": {
+    "blockingPassed": 0,
+    "blockingFailed": 1,
+    "blockingSkipped": 0,
+    "blockingIncomplete": 0,
+    "advisoryPassed": 0,
+    "advisoryFailed": 1,
+    "advisorySkipped": 0,
+    "advisoryIncomplete": 0
+  },
+  "runs": [
+    {
+      "label": "full-release-validation",
+      "repo": "openclaw/openclaw",
+      "runId": 25621220604,
+      "blocking": false,
+      "status": "completed",
+      "conclusion": "failure",
+      "workflowName": "Full Release Validation",
+      "event": "workflow_dispatch",
+      "headBranch": "release-ci/681b56fc0af9-1778392428",
+      "headSha": "681b56fc0af9653010446a6004639e5de191b4fb",
+      "path": ".github/workflows/full-release-validation.yml",
+      "createdAt": "2026-05-10T05:53:51Z",
+      "updatedAt": "2026-05-10T06:55:33Z",
+      "runStartedAt": "2026-05-10T05:53:51Z",
+      "durationMs": 3702000,
+      "totalJobDurationMs": 3687000,
+      "maxQueueDurationMs": 3690000,
+      "slowestJobs": [
+        {
+          "id": 75208163011,
+          "name": "Run release/live/Docker/QA validation",
+          "conclusion": "success",
+          "durationMs": 3669000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163011"
+        },
+        {
+          "id": 75211080762,
+          "name": "Verify full validation",
+          "conclusion": "failure",
+          "durationMs": 11000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75211080762"
+        },
+        {
+          "id": 75208150998,
+          "name": "Resolve target ref",
+          "conclusion": "success",
+          "durationMs": 7000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208150998"
+        },
+        {
+          "id": 75208163089,
+          "name": "Run normal full CI",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163089"
+        },
+        {
+          "id": 75208163171,
+          "name": "Run plugin prerelease validation",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163171"
+        },
+        {
+          "id": 75208163183,
+          "name": "Prepare release package artifact",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163183"
+        },
+        {
+          "id": 75208163207,
+          "name": "Run package Telegram E2E",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163207"
+        }
+      ],
+      "longestQueues": [
+        {
+          "id": 75211080762,
+          "name": "Verify full validation",
+          "conclusion": "failure",
+          "durationMs": 11000,
+          "queueDurationMs": 3690000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75211080762"
+        },
+        {
+          "id": 75208163011,
+          "name": "Run release/live/Docker/QA validation",
+          "conclusion": "success",
+          "durationMs": 3669000,
+          "queueDurationMs": 19000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163011"
+        },
+        {
+          "id": 75208163089,
+          "name": "Run normal full CI",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 17000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163089"
+        },
+        {
+          "id": 75208163171,
+          "name": "Run plugin prerelease validation",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 17000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163171"
+        },
+        {
+          "id": 75208163183,
+          "name": "Prepare release package artifact",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 17000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163183"
+        },
+        {
+          "id": 75208163207,
+          "name": "Run package Telegram E2E",
+          "conclusion": "skipped",
+          "durationMs": 0,
+          "queueDurationMs": 17000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163207"
+        },
+        {
+          "id": 75208150998,
+          "name": "Resolve target ref",
+          "conclusion": "success",
+          "durationMs": 7000,
+          "queueDurationMs": 9000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208150998"
+        }
+      ],
+      "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604",
+      "jobs": [
+        {
+          "id": 75208150998,
+          "name": "Resolve target ref",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:54:00Z",
+          "completedAt": "2026-05-10T05:54:07Z",
+          "durationMs": 7000,
+          "queueDurationMs": 9000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208150998"
+        },
+        {
+          "id": 75208163011,
+          "name": "Run release/live/Docker/QA validation",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:54:10Z",
+          "completedAt": "2026-05-10T06:55:19Z",
+          "durationMs": 3669000,
+          "queueDurationMs": 19000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163011"
+        },
+        {
+          "id": 75208163089,
+          "name": "Run normal full CI",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:54:08Z",
+          "completedAt": "2026-05-10T05:54:08Z",
+          "durationMs": 0,
+          "queueDurationMs": 17000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163089"
+        },
+        {
+          "id": 75208163171,
+          "name": "Run plugin prerelease validation",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:54:08Z",
+          "completedAt": "2026-05-10T05:54:08Z",
+          "durationMs": 0,
+          "queueDurationMs": 17000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163171"
+        },
+        {
+          "id": 75208163183,
+          "name": "Prepare release package artifact",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:54:08Z",
+          "completedAt": "2026-05-10T05:54:08Z",
+          "durationMs": 0,
+          "queueDurationMs": 17000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163183"
+        },
+        {
+          "id": 75208163207,
+          "name": "Run package Telegram E2E",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:54:08Z",
+          "completedAt": "2026-05-10T05:54:08Z",
+          "durationMs": 0,
+          "queueDurationMs": 17000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75208163207"
+        },
+        {
+          "id": 75211080762,
+          "name": "Verify full validation",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-05-10T06:55:21Z",
+          "completedAt": "2026-05-10T06:55:32Z",
+          "durationMs": 11000,
+          "queueDurationMs": 3690000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621220604/job/75211080762"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "label": "release-checks",
+      "repo": "openclaw/openclaw",
+      "runId": 25621228190,
+      "blocking": true,
+      "status": "completed",
+      "conclusion": "failure",
+      "workflowName": "OpenClaw Release Checks",
+      "event": "workflow_dispatch",
+      "headBranch": "release-ci/681b56fc0af9-1778392428",
+      "headSha": "681b56fc0af9653010446a6004639e5de191b4fb",
+      "path": ".github/workflows/openclaw-release-checks.yml",
+      "createdAt": "2026-05-10T05:54:15Z",
+      "updatedAt": "2026-05-10T06:54:49Z",
+      "runStartedAt": "2026-05-10T05:54:15Z",
+      "durationMs": 3634000,
+      "totalJobDurationMs": 16505000,
+      "maxQueueDurationMs": 3631000,
+      "slowestJobs": [
+        {
+          "id": 75208555684,
+          "name": "Run Docker release-path validation / Docker E2E (package/update OpenAI install)",
+          "conclusion": "failure",
+          "durationMs": 3135000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555684"
+        },
+        {
+          "id": 75208287866,
+          "name": "Run repo/live E2E validation / validate_release_live_cache",
+          "conclusion": "success",
+          "durationMs": 1509000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287866"
+        },
+        {
+          "id": 75208375976,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live ACP bind)",
+          "conclusion": "success",
+          "durationMs": 571000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375976"
+        },
+        {
+          "id": 75208375972,
+          "name": "Run repo/live E2E validation / Docker live models (Z.ai)",
+          "conclusion": "success",
+          "durationMs": 541000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375972"
+        },
+        {
+          "id": 75208287993,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-opencode-go-minimax-qwen, native-...",
+          "conclusion": "success",
+          "durationMs": 498000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287993"
+        },
+        {
+          "id": 75208288003,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-openrouter, Native live gateway p...",
+          "conclusion": "success",
+          "durationMs": 436000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288003"
+        },
+        {
+          "id": 75208555696,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install A)",
+          "conclusion": "success",
+          "durationMs": 431000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555696"
+        },
+        {
+          "id": 75208375962,
+          "name": "Run repo/live E2E validation / Docker live models (Google)",
+          "conclusion": "success",
+          "durationMs": 421000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375962"
+        },
+        {
+          "id": 75208287994,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-zai, Native live gateway profiles...",
+          "conclusion": "success",
+          "durationMs": 363000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287994"
+        },
+        {
+          "id": 75208287964,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-opencode-go-deepseek-glm, native-...",
+          "conclusion": "success",
+          "durationMs": 345000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287964"
+        }
+      ],
+      "longestQueues": [
+        {
+          "id": 75211050738,
+          "name": "Verify release checks",
+          "conclusion": "failure",
+          "durationMs": 2000,
+          "queueDurationMs": 3631000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75211050738"
+        },
+        {
+          "id": 75208555695,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime plugins)",
+          "conclusion": "success",
+          "durationMs": 124000,
+          "queueDurationMs": 495000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555695"
+        },
+        {
+          "id": 75208555716,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install F)",
+          "conclusion": "success",
+          "durationMs": 78000,
+          "queueDurationMs": 495000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555716"
+        },
+        {
+          "id": 75208555720,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install B)",
+          "conclusion": "success",
+          "durationMs": 83000,
+          "queueDurationMs": 495000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555720"
+        },
+        {
+          "id": 75208555684,
+          "name": "Run Docker release-path validation / Docker E2E (package/update OpenAI install)",
+          "conclusion": "failure",
+          "durationMs": 3135000,
+          "queueDurationMs": 494000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555684"
+        },
+        {
+          "id": 75208555698,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime services)",
+          "conclusion": "success",
+          "durationMs": 155000,
+          "queueDurationMs": 494000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555698"
+        },
+        {
+          "id": 75208555712,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install H)",
+          "conclusion": "success",
+          "durationMs": 81000,
+          "queueDurationMs": 494000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555712"
+        },
+        {
+          "id": 75208555709,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install C)",
+          "conclusion": "success",
+          "durationMs": 105000,
+          "queueDurationMs": 493000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555709"
+        },
+        {
+          "id": 75208555715,
+          "name": "Run Docker release-path validation / Docker E2E (core)",
+          "conclusion": "success",
+          "durationMs": 72000,
+          "queueDurationMs": 493000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555715"
+        },
+        {
+          "id": 75208555719,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install G)",
+          "conclusion": "success",
+          "durationMs": 99000,
+          "queueDurationMs": 493000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555719"
+        }
+      ],
+      "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190",
+      "jobs": [
+        {
+          "id": 75208170999,
+          "name": "resolve_target",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:54:19Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": 76000,
+          "queueDurationMs": 4000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208170999"
+        },
+        {
+          "id": 75208232043,
+          "name": "Prepare release package artifact",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:55:37Z",
+          "completedAt": "2026-05-10T05:59:28Z",
+          "durationMs": 231000,
+          "queueDurationMs": 82000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232043"
+        },
+        {
+          "id": 75208232090,
+          "name": "Run repo/live E2E validation / validate_selected_ref",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:55:43Z",
+          "completedAt": "2026-05-10T05:56:48Z",
+          "durationMs": 65000,
+          "queueDurationMs": 88000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232090"
+        },
+        {
+          "id": 75208232127,
+          "name": "Run QA Lab live Telegram lane",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": null,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232127"
+        },
+        {
+          "id": 75208232154,
+          "name": "install_smoke_release_checks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": null,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232154"
+        },
+        {
+          "id": 75208232155,
+          "name": "Run QA Lab parity lane (${{ matrix.lane }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": null,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232155"
+        },
+        {
+          "id": 75208232172,
+          "name": "Run repo/live E2E validation / validate_live_suite_filter",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": null,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232172"
+        },
+        {
+          "id": 75208232179,
+          "name": "Run QA Lab live Discord lane",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": null,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232179"
+        },
+        {
+          "id": 75208232200,
+          "name": "Run QA Lab live WhatsApp lane",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": null,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232200"
+        },
+        {
+          "id": 75208232202,
+          "name": "Run QA Lab live Matrix lane",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": null,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232202"
+        },
+        {
+          "id": 75208232225,
+          "name": "Run QA Lab live Slack lane",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:35Z",
+          "durationMs": null,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232225"
+        },
+        {
+          "id": 75208232237,
+          "name": "Run QA Lab parity report",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:55:36Z",
+          "completedAt": "2026-05-10T05:55:36Z",
+          "durationMs": 0,
+          "queueDurationMs": 81000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208232237"
+        },
+        {
+          "id": 75208287866,
+          "name": "Run repo/live E2E validation / validate_release_live_cache",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:21:59Z",
+          "durationMs": 1509000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287866"
+        },
+        {
+          "id": 75208287867,
+          "name": "Run repo/live E2E validation / validate_repo_e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:59:20Z",
+          "durationMs": 150000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287867"
+        },
+        {
+          "id": 75208287868,
+          "name": "Run repo/live E2E validation / prepare_live_test_image",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:58:54Z",
+          "durationMs": 124000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287868"
+        },
+        {
+          "id": 75208287870,
+          "name": "Run repo/live E2E validation / validate_special_e2e (openshell-e2e, OpenShell repo E2E, pnpm test:e2e:openshell, 120, true, false)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:58:02Z",
+          "durationMs": 72000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287870"
+        },
+        {
+          "id": 75208287896,
+          "name": "Run repo/live E2E validation / Live media suites (Native live media audio plugins)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:57:36Z",
+          "durationMs": 46000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287896"
+        },
+        {
+          "id": 75208287897,
+          "name": "Run repo/live E2E validation / Live media suites (Native live media video plugins A)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:58:44Z",
+          "durationMs": 114000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287897"
+        },
+        {
+          "id": 75208287899,
+          "name": "Run repo/live E2E validation / Live media suites (Native live media music Google)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:57:51Z",
+          "durationMs": 61000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287899"
+        },
+        {
+          "id": 75208287900,
+          "name": "Run repo/live E2E validation / Live media suites (Native live media video plugins B)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:00:04Z",
+          "durationMs": 194000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287900"
+        },
+        {
+          "id": 75208287901,
+          "name": "Run repo/live E2E validation / Live media suites (Native live plugins A-K)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:57:51Z",
+          "durationMs": 61000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287901"
+        },
+        {
+          "id": 75208287903,
+          "name": "Run repo/live E2E validation / Live media suites (Native live media video plugins C)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:00:58Z",
+          "durationMs": 248000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287903"
+        },
+        {
+          "id": 75208287906,
+          "name": "Run repo/live E2E validation / Live media suites (Native live media music MiniMax)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:58:36Z",
+          "durationMs": 106000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287906"
+        },
+        {
+          "id": 75208287910,
+          "name": "Run repo/live E2E validation / Live media suites (Native live media video plugins D)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:58:26Z",
+          "durationMs": 96000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287910"
+        },
+        {
+          "id": 75208287926,
+          "name": "Run repo/live E2E validation / plan_docker_lane_groups",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:56:49Z",
+          "completedAt": "2026-05-10T05:56:49Z",
+          "durationMs": 0,
+          "queueDurationMs": 154000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287926"
+        },
+        {
+          "id": 75208287957,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-google, Native live gateway profi...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:01:30Z",
+          "durationMs": 280000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287957"
+        },
+        {
+          "id": 75208287958,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-anthropic-opus, native-live-src-g...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:01:32Z",
+          "durationMs": 282000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287958"
+        },
+        {
+          "id": 75208287959,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-anthropic-smoke, native-live-src-...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:56:56Z",
+          "durationMs": 6000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287959"
+        },
+        {
+          "id": 75208287960,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-minimax, Native live gateway prof...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:00:31Z",
+          "durationMs": 221000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287960"
+        },
+        {
+          "id": 75208287961,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-core, Native live gateway core, node .rele...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:57:20Z",
+          "durationMs": 30000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287961"
+        },
+        {
+          "id": 75208287964,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-opencode-go-deepseek-glm, native-...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:02:35Z",
+          "durationMs": 345000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287964"
+        },
+        {
+          "id": 75208287965,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-anthropic-sonnet-haiku, native-li...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:01:15Z",
+          "durationMs": 265000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287965"
+        },
+        {
+          "id": 75208287966,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-agents, Native live agents, node .release-harness/...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:51Z",
+          "completedAt": "2026-05-10T06:00:20Z",
+          "durationMs": 209000,
+          "queueDurationMs": 156000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287966"
+        },
+        {
+          "id": 75208287981,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-xai, Native live gateway profiles...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:59:59Z",
+          "durationMs": 189000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287981"
+        },
+        {
+          "id": 75208287983,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-extensions-l-n, Native live plugins L-N, node .release...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:57:23Z",
+          "durationMs": 33000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287983"
+        },
+        {
+          "id": 75208287986,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-opencode-go-mimo, native-live-src...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:01:30Z",
+          "durationMs": 280000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287986"
+        },
+        {
+          "id": 75208287989,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-fireworks, Native live gateway pr...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:51Z",
+          "completedAt": "2026-05-10T06:00:31Z",
+          "durationMs": 220000,
+          "queueDurationMs": 156000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287989"
+        },
+        {
+          "id": 75208287990,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-opencode-go-kimi, native-live-src...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:52Z",
+          "completedAt": "2026-05-10T06:01:39Z",
+          "durationMs": 287000,
+          "queueDurationMs": 157000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287990"
+        },
+        {
+          "id": 75208287991,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-opencode-go-smoke, Native live ga...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:56:56Z",
+          "durationMs": 6000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287991"
+        },
+        {
+          "id": 75208287993,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-opencode-go-minimax-qwen, native-...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:05:08Z",
+          "durationMs": 498000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287993"
+        },
+        {
+          "id": 75208287994,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-zai, Native live gateway profiles...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:52Z",
+          "completedAt": "2026-05-10T06:02:55Z",
+          "durationMs": 363000,
+          "queueDurationMs": 157000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287994"
+        },
+        {
+          "id": 75208287995,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-extensions-moonshot, Native live Moonshot plugin, node...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:57:43Z",
+          "durationMs": 53000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287995"
+        },
+        {
+          "id": 75208287998,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-deepseek, Native live gateway pro...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:52Z",
+          "completedAt": "2026-05-10T05:58:06Z",
+          "durationMs": 74000,
+          "queueDurationMs": 157000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287998"
+        },
+        {
+          "id": 75208287999,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-openai, Native live gateway profi...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:52Z",
+          "completedAt": "2026-05-10T06:00:12Z",
+          "durationMs": 200000,
+          "queueDurationMs": 157000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208287999"
+        },
+        {
+          "id": 75208288001,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-test, Native live test harnesses, node .release-harnes...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T06:00:26Z",
+          "durationMs": 216000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288001"
+        },
+        {
+          "id": 75208288002,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-extensions-openai, Native live OpenAI plugin, node .re...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:50Z",
+          "completedAt": "2026-05-10T05:59:21Z",
+          "durationMs": 151000,
+          "queueDurationMs": 155000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288002"
+        },
+        {
+          "id": 75208288003,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-profiles-openrouter, Native live gateway p...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:52Z",
+          "completedAt": "2026-05-10T06:04:08Z",
+          "durationMs": 436000,
+          "queueDurationMs": 157000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288003"
+        },
+        {
+          "id": 75208288019,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-gateway-backends, Native live gateway backends, no...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:51Z",
+          "completedAt": "2026-05-10T05:57:34Z",
+          "durationMs": 43000,
+          "queueDurationMs": 156000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288019"
+        },
+        {
+          "id": 75208288022,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-src-infra, Native live infra, OPENCLAW_LIVE_APNS_REACH...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:52Z",
+          "completedAt": "2026-05-10T05:57:21Z",
+          "durationMs": 29000,
+          "queueDurationMs": 157000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288022"
+        },
+        {
+          "id": 75208288023,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-extensions-xai, Native live xAI plugin, node .release-...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:52Z",
+          "completedAt": "2026-05-10T05:57:52Z",
+          "durationMs": 60000,
+          "queueDurationMs": 157000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288023"
+        },
+        {
+          "id": 75208288025,
+          "name": "Run repo/live E2E validation / validate_live_provider_suites (native-live-extensions-o-z-other, Native live plugins O-Z other, n...",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:56:52Z",
+          "completedAt": "2026-05-10T05:57:23Z",
+          "durationMs": 31000,
+          "queueDurationMs": 157000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288025"
+        },
+        {
+          "id": 75208288051,
+          "name": "Run repo/live E2E validation / Docker E2E (openwebui)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:56:49Z",
+          "completedAt": "2026-05-10T05:56:49Z",
+          "durationMs": 0,
+          "queueDurationMs": 154000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288051"
+        },
+        {
+          "id": 75208288079,
+          "name": "Run repo/live E2E validation / prepare_docker_e2e_image",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:56:49Z",
+          "completedAt": "2026-05-10T05:56:49Z",
+          "durationMs": 0,
+          "queueDurationMs": 154000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288079"
+        },
+        {
+          "id": 75208288103,
+          "name": "Run repo/live E2E validation / Docker E2E targeted lanes (${{ matrix.group.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:56:49Z",
+          "completedAt": "2026-05-10T05:56:49Z",
+          "durationMs": 0,
+          "queueDurationMs": 154000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288103"
+        },
+        {
+          "id": 75208288124,
+          "name": "Run repo/live E2E validation / Docker E2E (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:56:49Z",
+          "completedAt": "2026-05-10T05:56:49Z",
+          "durationMs": 0,
+          "queueDurationMs": 154000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208288124"
+        },
+        {
+          "id": 75208375949,
+          "name": "Run repo/live E2E validation / Docker live models (OpenAI)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:00:39Z",
+          "durationMs": 88000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375949"
+        },
+        {
+          "id": 75208375953,
+          "name": "Run repo/live E2E validation / Docker live models (MiniMax)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:01:19Z",
+          "durationMs": 128000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375953"
+        },
+        {
+          "id": 75208375955,
+          "name": "Run repo/live E2E validation / Docker live models (OpenRouter)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:01:28Z",
+          "durationMs": 137000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375955"
+        },
+        {
+          "id": 75208375956,
+          "name": "Run repo/live E2E validation / Docker live models (xAI)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:58:56Z",
+          "completedAt": "2026-05-10T06:00:48Z",
+          "durationMs": 112000,
+          "queueDurationMs": 281000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375956"
+        },
+        {
+          "id": 75208375960,
+          "name": "Run repo/live E2E validation / Docker live models (Fireworks)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:12Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 86000,
+          "queueDurationMs": 297000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375960"
+        },
+        {
+          "id": 75208375961,
+          "name": "Run repo/live E2E validation / Docker live models (Anthropic)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 87000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375961"
+        },
+        {
+          "id": 75208375962,
+          "name": "Run repo/live E2E validation / Docker live models (Google)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:06:12Z",
+          "durationMs": 421000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375962"
+        },
+        {
+          "id": 75208375963,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live gateway Anthropic)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:01:16Z",
+          "durationMs": 125000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375963"
+        },
+        {
+          "id": 75208375964,
+          "name": "Run repo/live E2E validation / Docker live models (OpenCode)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:00:40Z",
+          "durationMs": 89000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375964"
+        },
+        {
+          "id": 75208375966,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live gateway OpenAI)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:00:44Z",
+          "durationMs": 93000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375966"
+        },
+        {
+          "id": 75208375967,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live gateway Google)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:00:50Z",
+          "durationMs": 99000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375967"
+        },
+        {
+          "id": 75208375968,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live gateway MiniMax)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:00:35Z",
+          "durationMs": 84000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375968"
+        },
+        {
+          "id": 75208375970,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live gateway advisory OpenCode/OpenRouter)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:12Z",
+          "completedAt": "2026-05-10T06:03:49Z",
+          "durationMs": 277000,
+          "queueDurationMs": 297000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375970"
+        },
+        {
+          "id": 75208375972,
+          "name": "Run repo/live E2E validation / Docker live models (Z.ai)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:12Z",
+          "completedAt": "2026-05-10T06:08:13Z",
+          "durationMs": 541000,
+          "queueDurationMs": 297000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375972"
+        },
+        {
+          "id": 75208375974,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live gateway advisory DeepSeek/Fireworks)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:02:32Z",
+          "durationMs": 201000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375974"
+        },
+        {
+          "id": 75208375976,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live ACP bind)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:08:42Z",
+          "durationMs": 571000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375976"
+        },
+        {
+          "id": 75208375977,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live CLI backend)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:00:18Z",
+          "durationMs": 67000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375977"
+        },
+        {
+          "id": 75208375978,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live Codex harness)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:11Z",
+          "completedAt": "2026-05-10T06:01:29Z",
+          "durationMs": 138000,
+          "queueDurationMs": 296000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375978"
+        },
+        {
+          "id": 75208375979,
+          "name": "Run repo/live E2E validation / Docker live suites (Docker live gateway advisory xAI/Z.ai)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:12Z",
+          "completedAt": "2026-05-10T06:01:23Z",
+          "durationMs": 131000,
+          "queueDurationMs": 297000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208375979"
+        },
+        {
+          "id": 75208376075,
+          "name": "Run repo/live E2E validation / Docker live models (selected providers)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:58:55Z",
+          "completedAt": "2026-05-10T05:58:54Z",
+          "durationMs": null,
+          "queueDurationMs": 280000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208376075"
+        },
+        {
+          "id": 75208401962,
+          "name": "Run Docker release-path validation / validate_selected_ref",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T05:59:30Z",
+          "completedAt": "2026-05-10T06:00:37Z",
+          "durationMs": 67000,
+          "queueDurationMs": 315000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208401962"
+        },
+        {
+          "id": 75208401996,
+          "name": "Run package acceptance",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:59:28Z",
+          "completedAt": "2026-05-10T05:59:28Z",
+          "durationMs": 0,
+          "queueDurationMs": 313000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208401996"
+        },
+        {
+          "id": 75208401997,
+          "name": "cross_os_release_checks",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:59:28Z",
+          "completedAt": "2026-05-10T05:59:28Z",
+          "durationMs": 0,
+          "queueDurationMs": 313000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208401997"
+        },
+        {
+          "id": 75208402039,
+          "name": "Run Docker release-path validation / validate_live_suite_filter",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T05:59:28Z",
+          "completedAt": "2026-05-10T05:59:28Z",
+          "durationMs": 0,
+          "queueDurationMs": 313000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208402039"
+        },
+        {
+          "id": 75208467890,
+          "name": "Run Docker release-path validation / prepare_docker_e2e_image",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:00:48Z",
+          "completedAt": "2026-05-10T06:02:16Z",
+          "durationMs": 88000,
+          "queueDurationMs": 393000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208467890"
+        },
+        {
+          "id": 75208467961,
+          "name": "Run Docker release-path validation / prepare_live_test_image",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208467961"
+        },
+        {
+          "id": 75208468023,
+          "name": "Run Docker release-path validation / validate_repo_e2e",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468023"
+        },
+        {
+          "id": 75208468060,
+          "name": "Run Docker release-path validation / validate_special_e2e",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468060"
+        },
+        {
+          "id": 75208468070,
+          "name": "Run Docker release-path validation / plan_docker_lane_groups",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468070"
+        },
+        {
+          "id": 75208468137,
+          "name": "Run Docker release-path validation / Docker live suites (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468137"
+        },
+        {
+          "id": 75208468138,
+          "name": "Run Docker release-path validation / Docker live models (selected providers)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468138"
+        },
+        {
+          "id": 75208468146,
+          "name": "Run Docker release-path validation / validate_live_provider_suites",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468146"
+        },
+        {
+          "id": 75208468147,
+          "name": "Run Docker release-path validation / validate_release_live_cache",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468147"
+        },
+        {
+          "id": 75208468165,
+          "name": "Run Docker release-path validation / Live media suites (${{ matrix.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468165"
+        },
+        {
+          "id": 75208468172,
+          "name": "Run Docker release-path validation / Docker live models (${{ matrix.provider_label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:00:38Z",
+          "completedAt": "2026-05-10T06:00:38Z",
+          "durationMs": 0,
+          "queueDurationMs": 383000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208468172"
+        },
+        {
+          "id": 75208555684,
+          "name": "Run Docker release-path validation / Docker E2E (package/update OpenAI install)",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-05-10T06:02:29Z",
+          "completedAt": "2026-05-10T06:54:44Z",
+          "durationMs": 3135000,
+          "queueDurationMs": 494000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555684"
+        },
+        {
+          "id": 75208555690,
+          "name": "Run Docker release-path validation / Docker E2E (package/update Anthropic install)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:27Z",
+          "completedAt": "2026-05-10T06:04:14Z",
+          "durationMs": 107000,
+          "queueDurationMs": 492000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555690"
+        },
+        {
+          "id": 75208555695,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime plugins)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:30Z",
+          "completedAt": "2026-05-10T06:04:34Z",
+          "durationMs": 124000,
+          "queueDurationMs": 495000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555695"
+        },
+        {
+          "id": 75208555696,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install A)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:27Z",
+          "completedAt": "2026-05-10T06:09:38Z",
+          "durationMs": 431000,
+          "queueDurationMs": 492000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555696"
+        },
+        {
+          "id": 75208555698,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime services)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:29Z",
+          "completedAt": "2026-05-10T06:05:04Z",
+          "durationMs": 155000,
+          "queueDurationMs": 494000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555698"
+        },
+        {
+          "id": 75208555700,
+          "name": "Run Docker release-path validation / Docker E2E (package/update core)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:26Z",
+          "completedAt": "2026-05-10T06:06:47Z",
+          "durationMs": 261000,
+          "queueDurationMs": 491000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555700"
+        },
+        {
+          "id": 75208555708,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install E)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:26Z",
+          "completedAt": "2026-05-10T06:03:49Z",
+          "durationMs": 83000,
+          "queueDurationMs": 491000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555708"
+        },
+        {
+          "id": 75208555709,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install C)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:28Z",
+          "completedAt": "2026-05-10T06:04:13Z",
+          "durationMs": 105000,
+          "queueDurationMs": 493000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555709"
+        },
+        {
+          "id": 75208555711,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install D)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:18Z",
+          "completedAt": "2026-05-10T06:03:57Z",
+          "durationMs": 99000,
+          "queueDurationMs": 483000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555711"
+        },
+        {
+          "id": 75208555712,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install H)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:29Z",
+          "completedAt": "2026-05-10T06:03:50Z",
+          "durationMs": 81000,
+          "queueDurationMs": 494000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555712"
+        },
+        {
+          "id": 75208555715,
+          "name": "Run Docker release-path validation / Docker E2E (core)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:28Z",
+          "completedAt": "2026-05-10T06:03:40Z",
+          "durationMs": 72000,
+          "queueDurationMs": 493000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555715"
+        },
+        {
+          "id": 75208555716,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install F)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:30Z",
+          "completedAt": "2026-05-10T06:03:48Z",
+          "durationMs": 78000,
+          "queueDurationMs": 495000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555716"
+        },
+        {
+          "id": 75208555719,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install G)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:28Z",
+          "completedAt": "2026-05-10T06:04:07Z",
+          "durationMs": 99000,
+          "queueDurationMs": 493000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555719"
+        },
+        {
+          "id": 75208555720,
+          "name": "Run Docker release-path validation / Docker E2E (plugins/runtime install B)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-05-10T06:02:30Z",
+          "completedAt": "2026-05-10T06:03:53Z",
+          "durationMs": 83000,
+          "queueDurationMs": 495000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555720"
+        },
+        {
+          "id": 75208555743,
+          "name": "Run Docker release-path validation / Docker E2E (openwebui)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:02:17Z",
+          "completedAt": "2026-05-10T06:02:16Z",
+          "durationMs": null,
+          "queueDurationMs": 482000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555743"
+        },
+        {
+          "id": 75208555748,
+          "name": "Run Docker release-path validation / Docker E2E targeted lanes (${{ matrix.group.label }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-05-10T06:02:17Z",
+          "completedAt": "2026-05-10T06:02:17Z",
+          "durationMs": 0,
+          "queueDurationMs": 482000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75208555748"
+        },
+        {
+          "id": 75211050738,
+          "name": "Verify release checks",
+          "status": "completed",
+          "conclusion": "failure",
+          "startedAt": "2026-05-10T06:54:46Z",
+          "completedAt": "2026-05-10T06:54:48Z",
+          "durationMs": 2000,
+          "queueDurationMs": 3631000,
+          "htmlUrl": "https://github.com/openclaw/openclaw/actions/runs/25621228190/job/75211050738"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 6901735482,
+          "name": "docker-e2e-package-update-openai",
+          "sizeInBytes": 11059,
+          "expired": false,
+          "createdAt": "2026-05-10T06:54:38Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901470872,
+          "name": "docker-e2e-plugins-runtime-install-a",
+          "sizeInBytes": 6015,
+          "expired": false,
+          "createdAt": "2026-05-10T06:09:32Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901451420,
+          "name": "docker-e2e-package-update-core",
+          "sizeInBytes": 18729,
+          "expired": false,
+          "createdAt": "2026-05-10T06:06:40Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901440542,
+          "name": "docker-e2e-plugins-runtime-services",
+          "sizeInBytes": 5981,
+          "expired": false,
+          "createdAt": "2026-05-10T06:04:59Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901437656,
+          "name": "docker-e2e-plugins-runtime-plugins",
+          "sizeInBytes": 3211,
+          "expired": false,
+          "createdAt": "2026-05-10T06:04:28Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901435657,
+          "name": "docker-e2e-package-update-anthropic",
+          "sizeInBytes": 7048,
+          "expired": false,
+          "createdAt": "2026-05-10T06:04:09Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901435537,
+          "name": "docker-e2e-plugins-runtime-install-c",
+          "sizeInBytes": 6001,
+          "expired": false,
+          "createdAt": "2026-05-10T06:04:07Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901435063,
+          "name": "docker-e2e-plugins-runtime-install-g",
+          "sizeInBytes": 6084,
+          "expired": false,
+          "createdAt": "2026-05-10T06:04:02Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901433967,
+          "name": "docker-e2e-plugins-runtime-install-d",
+          "sizeInBytes": 6046,
+          "expired": false,
+          "createdAt": "2026-05-10T06:03:51Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901433627,
+          "name": "docker-e2e-plugins-runtime-install-b",
+          "sizeInBytes": 6037,
+          "expired": false,
+          "createdAt": "2026-05-10T06:03:48Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901433297,
+          "name": "docker-e2e-plugins-runtime-install-e",
+          "sizeInBytes": 6054,
+          "expired": false,
+          "createdAt": "2026-05-10T06:03:44Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901433271,
+          "name": "docker-e2e-plugins-runtime-install-h",
+          "sizeInBytes": 5951,
+          "expired": false,
+          "createdAt": "2026-05-10T06:03:44Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901433092,
+          "name": "docker-e2e-plugins-runtime-install-f",
+          "sizeInBytes": 6022,
+          "expired": false,
+          "createdAt": "2026-05-10T06:03:42Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901431844,
+          "name": "docker-e2e-core",
+          "sizeInBytes": 8033,
+          "expired": false,
+          "createdAt": "2026-05-10T06:03:29Z",
+          "expiresAt": "2026-08-08T05:54:17Z"
+        },
+        {
+          "id": 6901408486,
+          "name": "release-package-under-test",
+          "sizeInBytes": 27895919,
+          "expired": false,
+          "createdAt": "2026-05-10T05:59:24Z",
+          "expiresAt": "2026-05-24T05:59:22Z"
+        }
+      ]
+    }
+  ]
+}
