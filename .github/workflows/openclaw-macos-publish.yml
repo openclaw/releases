@@ -131,7 +131,7 @@ jobs:
   build_sign_and_package:
     needs: prepare
     if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
-    runs-on: macos-latest
+    runs-on: macos-15
     environment: mac-release
     permissions:
       actions: read
