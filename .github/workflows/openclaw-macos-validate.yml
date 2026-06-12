@@ -99,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            if swift test --package-path apps/macos --parallel; then
+            if swift test --package-path apps/macos; then
               exit 0
             fi
             echo "swift test failed (attempt $attempt/3). Retrying..."
