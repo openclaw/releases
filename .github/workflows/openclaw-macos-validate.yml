@@ -99,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            if swift test --package-path apps/macos --parallel --num-workers 1; then
+            if swift test --package-path apps/macos --no-parallel; then
               exit 0
             fi
             echo "swift test failed (attempt $attempt/3). Retrying..."
@@ -138,7 +138,7 @@ jobs:
             echo "## macOS validation"
             echo
             echo "- Tag: \`${RELEASE_TAG}\`"
-            echo "- Validation: \`swift test --package-path apps/macos --parallel --num-workers 1\`"
+            echo "- Validation: \`swift test --package-path apps/macos --no-parallel\`"
             echo "- Validation proof artifact: \`macos-validate-${RELEASE_TAG}\`"
             echo
             echo "This lane is release-blocking validation, but it does not build, sign, notarize, package, or upload release artifacts."
