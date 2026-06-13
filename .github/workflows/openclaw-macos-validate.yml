@@ -102,51 +102,37 @@ jobs:
           import re
           import subprocess
           import sys
-          import time
 
           command = ["swift", "test", "--package-path", "apps/macos", "--no-parallel"]
           timeout_seconds = 900
-          started = time.monotonic()
-          lines = []
           timed_out = False
 
-          proc = subprocess.Popen(
-              command,
-              stdout=subprocess.PIPE,
-              stderr=subprocess.STDOUT,
-              text=True,
-              bufsize=1,
-          )
-          assert proc.stdout is not None
-          while True:
-              line = proc.stdout.readline()
-              if line:
-                  print(line, end="", flush=True)
-                  lines.append(line)
-              if proc.poll() is not None:
-                  break
-              if time.monotonic() - started > timeout_seconds:
-                  timed_out = True
-                  proc.terminate()
-                  try:
-                      proc.wait(timeout=10)
-                  except subprocess.TimeoutExpired:
-                      proc.kill()
-                      proc.wait()
-                  break
+          try:
+              completed = subprocess.run(
+                  command,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  text=True,
+                  timeout=timeout_seconds,
+              )
+              output = completed.stdout or ""
+              returncode = completed.returncode
+          except subprocess.TimeoutExpired as exc:
+              timed_out = True
+              output = exc.stdout or ""
+              if isinstance(output, bytes):
+                  output = output.decode(errors="replace")
+              returncode = 124
 
-          for line in proc.stdout:
-              print(line, end="", flush=True)
-              lines.append(line)
+          print(output, end="", flush=True)
 
-          text = "".join(lines)
-          passed_tests = len(re.findall(r"✔ Test ", text))
-          passed_suites = len(re.findall(r"✔ Suite ", text))
-          failed_tests = len(re.findall(r"✘ Test ", text))
-          failed_suites = len(re.findall(r"✘ Suite ", text))
-          build_errors = [line for line in lines if "error:" in line.lower()]
+          passed_tests = len(re.findall(r"✔ Test ", output))
+          passed_suites = len(re.findall(r"✔ Suite ", output))
+          failed_tests = len(re.findall(r"✘ Test ", output))
+          failed_suites = len(re.findall(r"✘ Suite ", output))
+          build_errors = [line for line in output.splitlines() if "error:" in line.lower()]
 
-          if proc.returncode == 0:
+          if returncode == 0:
               sys.exit(0)
 
           if timed_out and failed_tests == 0 and failed_suites == 0 and not build_errors and passed_tests >= 80 and passed_suites >= 15:
@@ -158,12 +144,12 @@ jobs:
               sys.exit(0)
 
           print(
-              f"swift test failed: returncode={proc.returncode} timed_out={timed_out} "
+              f"swift test failed: returncode={returncode} timed_out={timed_out} "
               f"passed_tests={passed_tests} passed_suites={passed_suites} "
               f"failed_tests={failed_tests} failed_suites={failed_suites} build_errors={len(build_errors)}",
               file=sys.stderr,
           )
-          sys.exit(proc.returncode or 124)
+          sys.exit(returncode or 124)
           PY
 
       - name: Capture validation provenance
