@@ -32,6 +32,21 @@ The macOS publish workflow builds from public `openclaw/openclaw` tags and uses
 the public repo's packaging scripts. Real publish runs promote previously
 prepared artifacts rather than rebuilding during the final upload step.
 
+## Release Approval
+
+The `mac-release` environment is the macOS equivalent of the public repo's
+`npm-release` environment:
+
+- real macOS preflight and promotion jobs must use `mac-release`
+- `mac-release` requires approval from `openclaw-release-managers`
+- real publish runs must be dispatched from this repo's `main` branch
+- read-only maintainers can inspect the run; dispatch and approval stay with
+  the configured release-manager reviewers, matching npm release policy
+
+Keep the environment's required-reviewer rule, main-branch policy, and disabled
+administrator bypass aligned with the npm release environment. Do not move
+signing or promotion secrets into repository-level secrets.
+
 ## Release Evidence
 
 The evidence workflows write release summaries under `evidence/<release-id>/`.

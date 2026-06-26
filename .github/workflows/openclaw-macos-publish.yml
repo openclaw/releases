@@ -132,6 +132,8 @@ jobs:
     needs: prepare
     if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
     runs-on: macos-15
+    # Match npm-release: signing and notarization stay behind the mac-release
+    # environment's required release-manager approval gate.
     environment: mac-release
     permissions:
       actions: read
@@ -556,6 +558,7 @@ jobs:
     needs: prepare
     if: ${{ !inputs.preflight_only && !inputs.smoke_test_only }}
     runs-on: ubuntu-latest
+    # Final promotion is independently environment-gated, just like npm publish.
     environment: mac-release
     permissions:
       actions: read
