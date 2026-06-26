@@ -43,9 +43,10 @@ The `mac-release` environment is the macOS equivalent of the public repo's
 - read-only maintainers can inspect the run; dispatch and approval stay with
   the configured release-manager reviewers, matching npm release policy
 
-Keep the environment's required-reviewer rule, main-branch policy, and disabled
-administrator bypass aligned with the npm release environment. Do not move
-signing or promotion secrets into repository-level secrets.
+Keep the environment's required-reviewer rule, enabled self-review prevention,
+main-branch policy, and disabled administrator bypass aligned with the macOS
+release policy. Do not move signing or promotion secrets into repository-level
+secrets.
 
 ## Release Evidence
 
