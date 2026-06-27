@@ -251,9 +251,15 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm build
 
-      - name: Build Control UI
+      - name: Build Control UI if missing
         working-directory: source
-        run: node scripts/ui.js build
+        run: |
+          set -euo pipefail
+          if [[ -f dist/control-ui/index.html ]]; then
+            echo "Control UI was already built by pnpm build; skipping."
+            exit 0
+          fi
+          node scripts/ui.js build
 
       - name: Validate release tag and package metadata
         working-directory: source
