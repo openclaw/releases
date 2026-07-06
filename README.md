@@ -24,7 +24,8 @@ maintenance, and durable release evidence separate from the product source repo.
 - `.github/workflows/openclaw-npm-dist-tags.yml` reconciles npm dist-tags after
   package publication.
 - `.github/workflows/openclaw-release-evidence.yml` records manually supplied
-  release proof runs.
+  release proof runs and can attach a verified extended-stable npm registry
+  snapshot as an immutable sidecar.
 - `.github/workflows/openclaw-release-evidence-from-full-validation.yml` ingests
   child runs from the public `Full Release Validation` workflow.
 
@@ -57,6 +58,7 @@ Each evidence directory contains:
 - `release-evidence.json`
 - `index.json`
 - `runs/<label>.json`
+- `extended-stable-registry-snapshot.json` after an extended-stable npm closeout
 
 Evidence records include release ref provenance, npm package metadata, run URLs,
 workflow names, refs, SHAs, pass/fail state, timing summaries, artifact names,
@@ -117,6 +119,65 @@ gh workflow run openclaw-release-evidence-from-full-validation.yml \
   -f release_ref=v2026.4.24 \
   -f package_spec=openclaw@2026.4.24
 ```
+
+### Extended-Stable npm Closeout
+
+After the read-only closeout workflow in `openclaw/openclaw` succeeds, attach
+its compact registry snapshot to an existing evidence directory:
+
+```bash
+CLOSEOUT_RUN_ID=123456789
+ARTIFACT_NAME=extended-stable-registry-snapshot-v2026.6.33
+
+CLOSEOUT_RUN_ATTEMPT="$(
+  gh api "repos/openclaw/openclaw/actions/runs/${CLOSEOUT_RUN_ID}" --jq .run_attempt
+)"
+CLOSEOUT_ARTIFACT_DIGEST="$(
+  gh api --paginate --slurp \
+    "repos/openclaw/openclaw/actions/runs/${CLOSEOUT_RUN_ID}/artifacts?per_page=100" |
+    jq -er --arg name "$ARTIFACT_NAME" '
+      [.[].artifacts[] | select(.name == $name and .expired == false)] as $matches |
+      if ($matches | length) == 1
+      then $matches[0].digest
+      else error("expected one unexpired artifact named " + $name)
+      end
+    '
+)
+
+gh workflow run openclaw-release-evidence.yml \
+  --repo openclaw/releases \
+  --ref main \
+  -f mode=extended-stable-closeout \
+  -f release_id=2026.6.33 \
+  -f release_ref=v2026.6.33 \
+  -f package_spec=openclaw@2026.6.33 \
+  -f closeout_run_id="$CLOSEOUT_RUN_ID" \
+  -f closeout_run_attempt="$CLOSEOUT_RUN_ATTEMPT" \
+  -f closeout_artifact_name="$ARTIFACT_NAME" \
+  -f closeout_artifact_digest="$CLOSEOUT_ARTIFACT_DIGEST" \
+  -f plugin_npm_run_id=123456780 \
+  -f core_npm_run_id=123456781 \
+  -f full_release_validation_run_id=123456782
+```
+
+The target evidence directory must already contain `release-evidence.json`,
+`release-evidence.md`, and `index.json`. This evidence-only mode has no npm
+publish or selector-mutation authority. It verifies the closeout and related
+runs against the canonical `extended-stable/YYYY.M.33` branch and release SHA,
+then verifies the exact GitHub artifact digest before writing the sidecar. The
+digest above is the GitHub artifact digest, not a digest calculated from the
+extracted JSON file.
+
+The closeout run must be on attempt `1`. GitHub's artifact download action is
+run-id scoped rather than attempt scoped, so a rerun could make a name-based
+download ambiguous. If closeout needs another attempt, dispatch a fresh
+closeout workflow run and use its new run id instead of rerunning the old run.
+
+The `release_id` must equal the exact `YYYY.M.PATCH` snapshot version. The mode
+adds links to the existing `index.json` and `release-evidence.md`; it does not
+regenerate or replace recorded Full Release Validation evidence. Replaying the
+same snapshot is a no-op, while a different snapshot for the same release id
+fails without overwrite.
 
 ## Storage Policy
 

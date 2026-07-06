@@ -3,6 +3,14 @@ name: OpenClaw Release Evidence
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Evidence operation
+        required: true
+        default: generic
+        type: choice
+        options:
+          - generic
+          - extended-stable-closeout
       release_id:
         description: Release evidence directory name, for example 2026.4.27-beta.1
         required: true
@@ -19,10 +27,46 @@ on:
         type: string
       runs:
         description: "One per line: <label> <owner/repo> <run-id> <blocking|advisory>"
-        required: true
+        required: false
+        default: ""
         type: string
       notes:
         description: Optional release-manager notes to append to the evidence markdown
+        required: false
+        default: ""
+        type: string
+      closeout_run_id:
+        description: Successful openclaw/openclaw extended-stable closeout run id
+        required: false
+        default: ""
+        type: string
+      closeout_run_attempt:
+        description: Exact closeout run attempt; must be 1 because reruns require a fresh run id
+        required: false
+        default: ""
+        type: string
+      closeout_artifact_name:
+        description: Exact extended-stable registry snapshot artifact name
+        required: false
+        default: ""
+        type: string
+      closeout_artifact_digest:
+        description: GitHub-reported SHA-256 digest for the snapshot artifact
+        required: false
+        default: ""
+        type: string
+      plugin_npm_run_id:
+        description: Related successful Plugin NPM Release run id
+        required: false
+        default: ""
+        type: string
+      core_npm_run_id:
+        description: Related core npm release run id
+        required: false
+        default: ""
+        type: string
+      full_release_validation_run_id:
+        description: Related successful Full Release Validation run id
         required: false
         default: ""
         type: string
@@ -37,6 +81,7 @@ env:
 
 jobs:
   write_evidence:
+    if: inputs.mode == 'generic'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -59,6 +104,10 @@ jobs:
           INPUT_NOTES: ${{ inputs.notes }}
         run: |
           set -euo pipefail
+          if [[ -z "${INPUT_RUNS//[[:space:]]/}" ]]; then
+            echo "::error::runs is required in generic evidence mode."
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/openclaw-release-evidence"
           printf '%s\n' "$INPUT_RUNS" > "$RUNNER_TEMP/openclaw-release-evidence/runs.txt"
           printf '%s\n' "$INPUT_NOTES" > "$RUNNER_TEMP/openclaw-release-evidence/notes.md"
@@ -113,4 +162,117 @@ jobs:
             sleep $((attempt * 5))
           done
           echo "::error::Could not push evidence to main after retries."
+          exit 1
+
+  write_extended_stable_closeout:
+    if: inputs.mode == 'extended-stable-closeout'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    env:
+      RELEASE_ID: ${{ inputs.release_id }}
+      RELEASE_REF: ${{ inputs.release_ref }}
+      PACKAGE_SPEC: ${{ inputs.package_spec }}
+      CLOSEOUT_RUN_ID: ${{ inputs.closeout_run_id }}
+      CLOSEOUT_RUN_ATTEMPT: ${{ inputs.closeout_run_attempt }}
+      CLOSEOUT_ARTIFACT_NAME: ${{ inputs.closeout_artifact_name }}
+      CLOSEOUT_ARTIFACT_DIGEST: ${{ inputs.closeout_artifact_digest }}
+      PLUGIN_NPM_RUN_ID: ${{ inputs.plugin_npm_run_id }}
+      CORE_NPM_RUN_ID: ${{ inputs.core_npm_run_id }}
+      FULL_RELEASE_VALIDATION_RUN_ID: ${{ inputs.full_release_validation_run_id }}
+    steps:
+      - name: Checkout release repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate closeout inputs
+        run: |
+          set -euo pipefail
+          for input_name in \
+            RELEASE_ID RELEASE_REF PACKAGE_SPEC CLOSEOUT_RUN_ID CLOSEOUT_RUN_ATTEMPT \
+            CLOSEOUT_ARTIFACT_NAME CLOSEOUT_ARTIFACT_DIGEST PLUGIN_NPM_RUN_ID \
+            CORE_NPM_RUN_ID FULL_RELEASE_VALIDATION_RUN_ID; do
+            if [[ -z "${!input_name//[[:space:]]/}" ]]; then
+              echo "::error::${input_name} is required in extended-stable-closeout mode."
+              exit 1
+            fi
+          done
+          if [[ "$CLOSEOUT_RUN_ATTEMPT" != "1" ]]; then
+            echo "::error::closeout_run_attempt must be 1; dispatch a fresh closeout run instead of rerunning."
+            exit 1
+          fi
+
+      - name: Download exact closeout snapshot
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ inputs.closeout_artifact_name }}
+          path: ${{ runner.temp }}/openclaw-extended-stable-closeout
+          github-token: ${{ secrets.OPENCLAW_RELEASES_PUSH_TOKEN }}
+          repository: openclaw/openclaw
+          run-id: ${{ inputs.closeout_run_id }}
+
+      - name: Verify and persist closeout sidecar
+        env:
+          GH_TOKEN: ${{ secrets.OPENCLAW_RELEASES_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          node scripts/openclaw-extended-stable-closeout-evidence.mjs \
+            --release-id "$RELEASE_ID" \
+            --release-ref "$RELEASE_REF" \
+            --package-spec "$PACKAGE_SPEC" \
+            --closeout-run-id "$CLOSEOUT_RUN_ID" \
+            --closeout-run-attempt "$CLOSEOUT_RUN_ATTEMPT" \
+            --artifact-name "$CLOSEOUT_ARTIFACT_NAME" \
+            --artifact-digest "$CLOSEOUT_ARTIFACT_DIGEST" \
+            --artifact-dir "$RUNNER_TEMP/openclaw-extended-stable-closeout" \
+            --plugin-run-id "$PLUGIN_NPM_RUN_ID" \
+            --core-run-id "$CORE_NPM_RUN_ID" \
+            --full-validation-run-id "$FULL_RELEASE_VALIDATION_RUN_ID"
+
+      - name: Append closeout summary
+        run: |
+          set -euo pipefail
+          evidence_md="evidence/${RELEASE_ID}/release-evidence.md"
+          {
+            cat "$evidence_md"
+            echo
+            echo "Snapshot path: \`evidence/${RELEASE_ID}/extended-stable-registry-snapshot.json\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit closeout sidecar to main
+        env:
+          PUSH_TOKEN: ${{ secrets.OPENCLAW_RELEASES_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          evidence_path="evidence/${RELEASE_ID}"
+          if [[ -z "${PUSH_TOKEN// }" ]]; then
+            echo "::error::OPENCLAW_RELEASES_PUSH_TOKEN is required to push release evidence directly to main."
+            exit 1
+          fi
+          git config user.name "openclaw-release-bot"
+          git config user.email "release-bot@openclaw.ai"
+          git add "${evidence_path}"
+          if git diff --cached --quiet; then
+            echo "No closeout evidence changes to commit."
+            exit 0
+          fi
+          git commit -m "Evidence: record extended-stable closeout ${RELEASE_ID}"
+          git remote set-url origin "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep $((attempt * 5))
+          done
+          echo "::error::Could not push closeout evidence to main after retries."
           exit 1
