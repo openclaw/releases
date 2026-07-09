@@ -49,6 +49,8 @@ env:
   NODE_VERSION: "24.x"
   PNPM_VERSION: "10.23.0"
   OPENCLAW_REPOSITORY: openclaw/openclaw
+  EXPECTED_DEVELOPER_IDENTITY: "Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)"
+  EXPECTED_DEVELOPER_TEAM_ID: FWJYW4S8P8
   SPARKLE_FEED_URL: https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml
 
 jobs:
@@ -365,18 +367,20 @@ jobs:
           EXISTING_KEYCHAINS="$(security list-keychains -d user | tr -d '"')"
           security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
           security default-keychain -d user -s "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Resolve signing identity
         if: ${{ !inputs.smoke_test_only }}
         run: |
           set -euo pipefail
-          SIGN_IDENTITY="$(security find-identity -p codesigning -v "$KEYCHAIN_PATH" 2>/dev/null | awk -F'\"' '/Developer ID Application/ { print $2; exit }')"
-          if [[ -z "${SIGN_IDENTITY}" ]]; then
-            echo "Developer ID Application identity not found in imported keychain." >&2
+          SIGN_IDENTITIES="$(security find-identity -p codesigning -v "$KEYCHAIN_PATH" 2>/dev/null | awk -F'\"' -v expected="$EXPECTED_DEVELOPER_IDENTITY" '$2 == expected { print $2 }')"
+          SIGN_IDENTITY_COUNT="$(printf '%s\n' "$SIGN_IDENTITIES" | awk 'NF { count++ } END { print count + 0 }')"
+          if [[ "$SIGN_IDENTITY_COUNT" != "1" ]]; then
+            echo "Expected exactly one OpenClaw Foundation Developer ID identity; found ${SIGN_IDENTITY_COUNT}." >&2
             exit 1
           fi
+          SIGN_IDENTITY="$SIGN_IDENTITIES"
           echo "SIGN_IDENTITY=$SIGN_IDENTITY" >> "$GITHUB_ENV"
 
       - name: Write notary and Sparkle key files
@@ -420,6 +424,41 @@ jobs:
           SKIP_UI_BUILD: "1"
           SPARKLE_FEED_URL: ${{ env.SPARKLE_FEED_URL }}
         run: scripts/package-mac-dist.sh
+
+      - name: Verify packaged OpenClaw signing identity
+        if: ${{ !inputs.smoke_test_only }}
+        env:
+          APP_VERSION: ${{ steps.package_version.outputs.value }}
+          EXPECTED_BUNDLE_ID: ai.openclaw.mac
+        run: |
+          set -euo pipefail
+          ZIP_PATH="source/dist/OpenClaw-${APP_VERSION}.zip"
+          DMG_PATH="source/dist/OpenClaw-${APP_VERSION}.dmg"
+          VERIFY_ROOT="$(mktemp -d)"
+          trap 'rm -rf "$VERIFY_ROOT"' EXIT
+
+          ditto -x -k "$ZIP_PATH" "$VERIFY_ROOT"
+          APP_PATH="$VERIFY_ROOT/OpenClaw.app"
+          [[ -d "$APP_PATH" ]] || { echo "OpenClaw.app missing from packaged zip." >&2; exit 1; }
+
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          APP_SIGNATURE="$(/usr/bin/codesign -dv --verbose=4 "$APP_PATH" 2>&1)"
+          grep -Fqx "Authority=${EXPECTED_DEVELOPER_IDENTITY}" <<<"$APP_SIGNATURE"
+          grep -Fqx "TeamIdentifier=${EXPECTED_DEVELOPER_TEAM_ID}" <<<"$APP_SIGNATURE"
+          APP_BUNDLE_ID="$(defaults read "$APP_PATH/Contents/Info" CFBundleIdentifier)"
+          [[ "$APP_BUNDLE_ID" == "$EXPECTED_BUNDLE_ID" ]] || {
+            echo "Unexpected bundle identifier: ${APP_BUNDLE_ID}" >&2
+            exit 1
+          }
+          spctl -a -vv -t exec "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+
+          /usr/bin/codesign --verify --strict --verbose=2 "$DMG_PATH"
+          DMG_SIGNATURE="$(/usr/bin/codesign -dv --verbose=4 "$DMG_PATH" 2>&1)"
+          grep -Fqx "Authority=${EXPECTED_DEVELOPER_IDENTITY}" <<<"$DMG_SIGNATURE"
+          grep -Fqx "TeamIdentifier=${EXPECTED_DEVELOPER_TEAM_ID}" <<<"$DMG_SIGNATURE"
+          spctl -a -vv -t open --context context:primary-signature "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
 
       - name: Seed appcast from public main
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
