@@ -87,12 +87,12 @@ jobs:
 
       - name: Commit evidence to main
         env:
-          PUSH_TOKEN: ${{ secrets.OPENCLAW_RELEASES_PUSH_TOKEN }}
+          PUSH_TOKEN: ${{ secrets.OPENCLAW_RELEASES_PRIVATE_PUSH_TOKEN }}
         run: |
           set -euo pipefail
           evidence_path="evidence/${{ inputs.release_id }}"
           if [[ -z "${PUSH_TOKEN// }" ]]; then
-            echo "::error::OPENCLAW_RELEASES_PUSH_TOKEN is required to push release evidence directly to main."
+            echo "::error::OPENCLAW_RELEASES_PRIVATE_PUSH_TOKEN is required to push release evidence directly to main."
             exit 1
           fi
           git config user.name "openclaw-release-bot"
