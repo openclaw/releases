@@ -48,6 +48,13 @@ main-branch policy, and disabled administrator bypass aligned with the macOS
 release policy. Do not move signing or promotion secrets into repository-level
 secrets.
 
+The evidence writer jobs use the `release-evidence` environment. It requires
+approval from `openclaw-release-managers`, permits deployments only from
+`main`, prevents self-review, and keeps administrator bypass disabled. Keep the
+environment free of secrets and variables; its approval gates durable evidence
+publication only and must not turn a pending publication into a failed upstream
+validation result.
+
 ## Release Evidence
 
 The evidence workflows write release summaries under `evidence/<release-id>/`.
@@ -58,9 +65,10 @@ Each evidence directory contains:
 - `index.json`
 - `runs/<label>.json`
 
-Evidence records include release ref provenance, npm package metadata, run URLs,
-workflow names, refs, SHAs, pass/fail state, timing summaries, artifact names,
-artifact sizes, and selected release performance summaries.
+Evidence records include release ref provenance, current npm and public GitHub
+release state, run URLs, workflow names, refs, SHAs, pass/fail state, timing
+summaries, artifact names, artifact sizes, and selected release performance
+summaries.
 
 Evidence records do not store raw logs, provider payloads, live-channel
 transcripts, signing material, credentials, environment dumps, or downloaded
@@ -103,8 +111,16 @@ fail the release by itself.
 ### Full Validation Ingest
 
 `OpenClaw Release Evidence From Full Validation` takes a completed
-`openclaw/openclaw` full-validation run id, reads that parent run's logs,
-extracts child run ids, and writes the same evidence directory shape.
+`openclaw/openclaw` full-validation run id and reads its attempt-qualified
+`full-release-validation-<run-id>-<attempt>` manifest artifact. The ingest
+rejects missing, duplicate, expired, malformed, or identity-mismatched
+artifacts; child run ids and evidence-reuse provenance come only from the
+validated manifest.
+
+Both evidence workflows require an exact package spec and release ref. They
+commit with the workflow's same-repository `github.token`, then verify that the
+commit is reachable from `origin/main`, the remote evidence directory is
+byte-identical, and its JSON still satisfies the release identity contract.
 
 Manual ingest example:
 

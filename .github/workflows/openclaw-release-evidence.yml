@@ -8,14 +8,12 @@ on:
         required: true
         type: string
       release_ref:
-        description: Optional public OpenClaw release ref, tag, branch, or SHA
-        required: false
-        default: ""
+        description: Exact public OpenClaw release ref, tag, or SHA
+        required: true
         type: string
       package_spec:
-        description: Optional package spec covered by this evidence, for example openclaw@2026.4.27-beta.1
-        required: false
-        default: ""
+        description: Exact package spec covered by this evidence, for example openclaw@2026.4.27-beta.1
+        required: true
         type: string
       runs:
         description: "One per line: <label> <owner/repo> <run-id> <blocking|advisory>"
@@ -34,22 +32,28 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   NODE_VERSION: "24.x"
+  PACKAGE_SPEC: ${{ inputs.package_spec }}
+  RELEASE_ID: ${{ inputs.release_id }}
+  RELEASE_REF: ${{ inputs.release_ref }}
 
 jobs:
   write_evidence:
+    if: github.ref == 'refs/heads/main'
+    environment: release-evidence
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
     steps:
       - name: Checkout release repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
         with:
           fetch-depth: 0
-          persist-credentials: false
+          ref: main
+          token: ${{ github.token }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -69,16 +73,16 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/openclaw-release-evidence.mjs \
-            --release-id "${{ inputs.release_id }}" \
-            --release-ref "${{ inputs.release_ref }}" \
-            --package-spec "${{ inputs.package_spec }}" \
+            --release-id "$RELEASE_ID" \
+            --release-ref "$RELEASE_REF" \
+            --package-spec "$PACKAGE_SPEC" \
             --runs-file "$RUNNER_TEMP/openclaw-release-evidence/runs.txt" \
             --notes-file "$RUNNER_TEMP/openclaw-release-evidence/notes.md"
 
       - name: Append run summary
         run: |
           set -euo pipefail
-          evidence_md="evidence/${{ inputs.release_id }}/release-evidence.md"
+          evidence_md="evidence/${RELEASE_ID}/release-evidence.md"
           {
             cat "$evidence_md"
             echo
@@ -86,31 +90,62 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit evidence to main
-        env:
-          PUSH_TOKEN: ${{ secrets.OPENCLAW_RELEASES_PRIVATE_PUSH_TOKEN }}
         run: |
           set -euo pipefail
-          evidence_path="evidence/${{ inputs.release_id }}"
-          if [[ -z "${PUSH_TOKEN// }" ]]; then
-            echo "::error::OPENCLAW_RELEASES_PRIVATE_PUSH_TOKEN is required to push release evidence directly to main."
-            exit 1
-          fi
+          evidence_path="evidence/${RELEASE_ID}"
+          node scripts/openclaw-release-evidence-contract.mjs verify-evidence \
+            "${evidence_path}/release-evidence.json" "$RELEASE_ID" "$RELEASE_REF" "$PACKAGE_SPEC"
           git config user.name "openclaw-release-bot"
           git config user.email "release-bot@openclaw.ai"
           git add "${evidence_path}"
+          generated_tree="$(git write-tree)"
+          expected_tree="$(git rev-parse "${generated_tree}:${evidence_path}")"
+          changed=0
           if git diff --cached --quiet; then
             echo "No evidence changes to commit."
-            exit 0
+          else
+            git commit -m "Evidence: record ${RELEASE_ID}"
+            changed=1
           fi
-          git commit -m "Evidence: record ${{ inputs.release_id }}"
-          git remote set-url origin "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          for attempt in 1 2 3 4 5; do
-            git fetch origin main
-            if git rebase origin/main && git push origin HEAD:main; then
-              exit 0
+
+          if [[ "$changed" == "1" ]]; then
+            pushed=0
+            for attempt in 1 2 3 4 5; do
+              git fetch origin main
+              if git rebase origin/main; then
+                if [[ "$(git rev-parse "HEAD:${evidence_path}")" != "$expected_tree" ]]; then
+                  echo "::error::Rebase changed the generated evidence directory."
+                  exit 1
+                fi
+                if git push origin HEAD:main; then
+                  pushed=1
+                  break
+                fi
+              fi
+              git rebase --abort || true
+              sleep $((attempt * 5))
+            done
+            if [[ "$pushed" != "1" ]]; then
+              echo "::error::Could not push evidence to main after retries."
+              exit 1
             fi
-            git rebase --abort || true
-            sleep $((attempt * 5))
-          done
-          echo "::error::Could not push evidence to main after retries."
-          exit 1
+          fi
+
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "::error::Published evidence commit is not reachable from origin/main."
+            exit 1
+          }
+          remote_tree="$(git rev-parse "origin/main:${evidence_path}")"
+          if [[ "$expected_tree" != "$remote_tree" ]]; then
+            echo "::error::Remote evidence directory differs from the generated files."
+            exit 1
+          fi
+          remote_json="$RUNNER_TEMP/openclaw-release-evidence/remote-release-evidence.json"
+          git show "origin/main:${evidence_path}/release-evidence.json" > "$remote_json"
+          cmp "${evidence_path}/release-evidence.json" "$remote_json" || {
+            echo "::error::Remote evidence bytes differ from the generated JSON."
+            exit 1
+          }
+          node scripts/openclaw-release-evidence-contract.mjs verify-evidence \
+            "$remote_json" "$RELEASE_ID" "$RELEASE_REF" "$PACKAGE_SPEC"

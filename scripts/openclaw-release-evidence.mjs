@@ -3,9 +3,16 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  githubBinary,
+  githubJson,
+  githubPaged,
+  resolvePublicRelease,
+  resolveReleaseRef,
+  validateEvidenceDocument,
+} from "./openclaw-release-evidence-contract.mjs";
 
 const DEFAULT_EVIDENCE_REPO = "openclaw/releases";
-const PUBLIC_REPO = "openclaw/openclaw";
 
 function usage() {
   console.log(`Usage:
@@ -15,6 +22,7 @@ function usage() {
     [--release-ref <tag-or-sha>] \\
     [--package-spec openclaw@2026.4.27-beta.1] \\
     [--notes-file /tmp/notes.md] \\
+    [--full-validation-source-file /tmp/full-validation-source.json] \\
     [--output-root evidence]
 
 Runs file format, one run per line:
@@ -34,6 +42,7 @@ function parseArgs(argv) {
     notesFile: "",
     releaseId: "",
     runsFile: "",
+    fullValidationSourceFile: "",
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -63,6 +72,9 @@ function parseArgs(argv) {
         break;
       case "--runs-file":
         args.runsFile = next();
+        break;
+      case "--full-validation-source-file":
+        args.fullValidationSourceFile = next();
         break;
       case "--output-root":
         args.outputRoot = next();
@@ -112,57 +124,6 @@ function parseRunsFile(text) {
     });
 }
 
-async function githubJson(pathname) {
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
-  const headers = {
-    Accept: "application/vnd.github+json",
-    "User-Agent": "openclaw-release-evidence",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  const response = await fetch(`https://api.github.com${pathname}`, { headers });
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `GitHub API ${pathname} failed: ${response.status} ${response.statusText}\n${body}`,
-    );
-  }
-  return body ? JSON.parse(body) : null;
-}
-
-async function githubBinary(url) {
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
-  const headers = {
-    Accept: "application/vnd.github+json",
-    "User-Agent": "openclaw-release-evidence",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  const response = await fetch(url, { headers });
-  const body = await response.arrayBuffer();
-  if (!response.ok) {
-    throw new Error(
-      `GitHub artifact download ${url} failed: ${response.status} ${response.statusText}`,
-    );
-  }
-  return Buffer.from(body);
-}
-
-async function githubJsonOrNull(pathname) {
-  try {
-    return await githubJson(pathname);
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("failed: 404 ")) {
-      return null;
-    }
-    throw error;
-  }
-}
-
 async function npmJson(pathname) {
   const response = await fetch(`https://registry.npmjs.org${pathname}`, {
     headers: {
@@ -195,7 +156,7 @@ function parseOpenClawPackageSpec(spec) {
     };
   }
   const [, packageName, selector] = match;
-  const exactVersion = /^\d{4}\.\d+\.\d+(?:-(?:beta\.)?\d+)?$/.test(selector) ? selector : "";
+  const exactVersion = /^\d{4}\.\d+\.\d+(?:(?:-(?:alpha|beta)\.\d+)|(?:-\d+))?$/.test(selector) ? selector : "";
   return { provided: true, packageName, selector, exactVersion };
 }
 
@@ -264,99 +225,14 @@ async function resolveNpmPackage(packageSpec) {
   }
 }
 
-function inferRefCandidates(ref) {
-  const value = ref.trim();
-  if (!value) {
-    return [];
-  }
-  if (value.startsWith("refs/heads/")) {
-    return [{ kind: "branch", name: value.slice("refs/heads/".length) }];
-  }
-  if (value.startsWith("refs/tags/")) {
-    return [{ kind: "tag", name: value.slice("refs/tags/".length) }];
-  }
-  if (/^[0-9a-f]{40}$/i.test(value)) {
-    return [{ kind: "sha", name: value }];
-  }
-  return [
-    { kind: "branch", name: value },
-    { kind: "tag", name: value },
-  ];
-}
-
-async function dereferenceGitObject(owner, repoName, object) {
-  if (!object?.sha) {
-    return { sha: "", objectType: object?.type || "" };
-  }
-  if (object.type !== "tag") {
-    return { sha: object.sha, objectType: object.type || "" };
-  }
-  const tagObject = await githubJsonOrNull(`/repos/${owner}/${repoName}/git/tags/${object.sha}`);
-  return {
-    sha: tagObject?.object?.sha || object.sha,
-    objectType: tagObject?.object?.type || object.type || "",
-    tagObjectSha: object.sha,
-  };
-}
-
-async function resolveReleaseRef(releaseRef, runs) {
-  const input = releaseRef.trim();
-  if (!input) {
-    return {
-      input,
-      status: "not-recorded",
-      note: "No release ref was recorded for this evidence run.",
-      matchingRunLabels: [],
-    };
-  }
-
-  const [owner, repoName] = PUBLIC_REPO.split("/");
-  if (/^[0-9a-f]{40}$/i.test(input)) {
-    const commit = await githubJsonOrNull(`/repos/${owner}/${repoName}/commits/${input}`);
-    const resolvedSha = commit?.sha || input;
-    return {
-      input,
-      status: commit ? "resolved" : "unverified-sha",
-      kind: "sha",
-      name: input,
-      resolvedSha,
-      matchingRunLabels: runs.filter((run) => run.headSha === resolvedSha).map((run) => run.label),
-    };
-  }
-
-  for (const candidate of inferRefCandidates(input)) {
-    const apiPath =
-      candidate.kind === "branch"
-        ? `/repos/${owner}/${repoName}/git/ref/heads/${candidate.name}`
-        : `/repos/${owner}/${repoName}/git/ref/tags/${candidate.name}`;
-    const refPayload = await githubJsonOrNull(apiPath);
-    if (!refPayload) {
-      continue;
-    }
-    const dereferenced = await dereferenceGitObject(owner, repoName, refPayload.object);
-    const resolvedSha = dereferenced.sha || "";
-    return {
-      input,
-      status: "resolved",
-      kind: candidate.kind,
-      name: candidate.name,
-      ref: refPayload.ref || "",
-      resolvedSha,
-      objectType: dereferenced.objectType || refPayload.object?.type || "",
-      tagObjectSha: dereferenced.tagObjectSha || "",
-      matchingRunLabels: runs.filter((run) => run.headSha === resolvedSha).map((run) => run.label),
-    };
-  }
-
-  return {
-    input,
-    status: "not-found",
-    note: `Could not resolve release ref in ${PUBLIC_REPO}.`,
-    matchingRunLabels: [],
-  };
-}
-
-function buildProvenance(releaseRef, packageSpec, runs, npmPackage) {
+function buildProvenance(
+  releaseRef,
+  packageSpec,
+  runs,
+  npmPackage,
+  publicRelease,
+  fullValidation,
+) {
   const releaseSha = releaseRef?.resolvedSha || "";
   const npmGitHead = npmPackage?.gitHead || "";
   const npmGitHeadMatchesReleaseRef =
@@ -367,28 +243,12 @@ function buildProvenance(releaseRef, packageSpec, runs, npmPackage) {
   return {
     releaseRef,
     npmPackage,
+    publicRelease,
+    fullValidation,
     npmGitHeadMatchesReleaseRef,
     npmGitHeadMatchesRun,
     packageSpecRecorded: Boolean(packageSpec.trim()),
   };
-}
-
-async function githubPaged(pathname) {
-  const pages = [];
-  for (let page = 1; page <= 20; page += 1) {
-    const separator = pathname.includes("?") ? "&" : "?";
-    const payload = await githubJson(`${pathname}${separator}per_page=100&page=${page}`);
-    const values =
-      payload?.jobs ??
-      payload?.artifacts ??
-      payload?.workflow_runs ??
-      (Array.isArray(payload) ? payload : []);
-    pages.push(...values);
-    if (!Array.isArray(values) || values.length < 100) {
-      break;
-    }
-  }
-  return pages;
 }
 
 function runUrl(repo, runId) {
@@ -978,6 +838,14 @@ function renderMarkdown(evidence, notes) {
   if (npmPackage.tarball) {
     lines.push(`| npm tarball | ${npmPackage.tarball} |`);
   }
+  const publicRelease = evidence.provenance.publicRelease;
+  lines.push(`| Public release status | ${publicRelease.status || ""} |`);
+  if (publicRelease.htmlUrl) {
+    lines.push(`| Public release | ${publicRelease.htmlUrl} |`);
+  }
+  if (publicRelease.publishedAt) {
+    lines.push(`| Public release published at | ${publicRelease.publishedAt} |`);
+  }
   lines.push("");
   lines.push("## Summary");
   lines.push("");
@@ -1108,9 +976,13 @@ async function main() {
   const runsText = await fs.readFile(args.runsFile, "utf8");
   const runEntries = parseRunsFile(runsText);
   const notes = args.notesFile ? await fs.readFile(args.notesFile, "utf8") : "";
+  const fullValidation = args.fullValidationSourceFile
+    ? JSON.parse(await fs.readFile(args.fullValidationSourceFile, "utf8"))
+    : null;
 
   const outputDir = path.join(args.outputRoot, args.releaseId);
-  await fs.mkdir(path.join(outputDir, "runs"), { recursive: true });
+  const runsDir = path.join(outputDir, "runs");
+  await fs.mkdir(outputDir, { recursive: true });
   const previousEvidence = await readPreviousEvidence(
     path.join(outputDir, "release-evidence.json"),
   );
@@ -1119,16 +991,22 @@ async function main() {
   for (const entry of runEntries) {
     const [owner, repoName] = entry.repo.split("/");
     const run = await githubJson(`/repos/${owner}/${repoName}/actions/runs/${entry.runId}`);
-    const jobs = await githubPaged(`/repos/${owner}/${repoName}/actions/runs/${entry.runId}/jobs`);
+    const jobs = await githubPaged(
+      `/repos/${owner}/${repoName}/actions/runs/${entry.runId}/jobs`,
+      "jobs",
+    );
     const artifacts = await githubPaged(
       `/repos/${owner}/${repoName}/actions/runs/${entry.runId}/artifacts`,
+      "artifacts",
     );
     const normalized = normalizeRun(run, entry, jobs, artifacts);
     runs.push(normalized);
   }
   const runsWithDeltas = attachTimingDeltas(runs, previousEvidence);
+  await fs.rm(runsDir, { recursive: true, force: true });
+  await fs.mkdir(runsDir);
   for (const run of runsWithDeltas) {
-    await writeJson(path.join(outputDir, "runs", `${run.label}.json`), run);
+    await writeJson(path.join(runsDir, `${run.label}.json`), run);
   }
 
   const evidence = {
@@ -1149,10 +1027,25 @@ async function main() {
     summary: summarize(runsWithDeltas),
     runs: runsWithDeltas,
   };
-  const npmPackage = await resolveNpmPackage(args.packageSpec);
-  const releaseRef = await resolveReleaseRef(args.releaseRef, runs);
-  evidence.provenance = buildProvenance(releaseRef, args.packageSpec, runs, npmPackage);
+  const [npmPackage, releaseRef, publicRelease] = await Promise.all([
+    resolveNpmPackage(args.packageSpec),
+    resolveReleaseRef(args.releaseRef, runs),
+    resolvePublicRelease(args.releaseRef),
+  ]);
+  evidence.provenance = buildProvenance(
+    releaseRef,
+    args.packageSpec,
+    runs,
+    npmPackage,
+    publicRelease,
+    fullValidation,
+  );
   evidence.performance = await collectPerformanceMetrics(runsWithDeltas);
+  validateEvidenceDocument(evidence, {
+    releaseId: args.releaseId,
+    releaseRef: args.releaseRef,
+    packageSpec: args.packageSpec,
+  }, { requireFullValidation: Boolean(fullValidation) });
 
   await writeJson(path.join(outputDir, "release-evidence.json"), evidence);
   await fs.writeFile(path.join(outputDir, "release-evidence.md"), renderMarkdown(evidence, notes));
