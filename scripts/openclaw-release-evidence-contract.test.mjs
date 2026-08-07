@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  classifyFullValidationUpdate,
   fullValidationRunEntries,
   githubPaged,
   selectFullValidationArtifact,
   validateEvidenceDocument,
   validateFullValidationManifest,
   validateReleaseIdentity,
+  workflowRunJobsPath,
+  workflowRunPath,
 } from "./openclaw-release-evidence-contract.mjs";
 
 const parentRun = {
@@ -15,6 +18,7 @@ const parentRun = {
   run_attempt: 1,
   head_branch: "release-ci/ebf121af6ab5-1785611218973",
   head_sha: "ebf121af6ab5036beda157722467ef5065ba58c3",
+  updated_at: "2026-08-06T08:00:00Z",
 };
 
 const artifact = {
@@ -72,6 +76,41 @@ const releaseIdentity = {
   resolvedSha: manifest.targetSha,
 };
 
+function persistedEvidence() {
+  const evidence = {
+    schemaVersion: 2,
+    release: {
+      id: releaseIdentity.releaseId,
+      ref: releaseIdentity.releaseRef,
+      packageSpec: releaseIdentity.packageSpec,
+    },
+    provenance: {
+      releaseRef: { status: "resolved", resolvedSha: manifest.targetSha },
+      fullValidation: {
+        releaseIdentity,
+        parentRun: {
+          runId: String(parentRun.id),
+          runAttempt: parentRun.run_attempt,
+          workflowRef: parentRun.head_branch,
+          workflowSha: parentRun.head_sha,
+          updatedAt: parentRun.updated_at,
+        },
+        manifest: validateFullValidationManifest(manifest, parentRun),
+      },
+    },
+    runs: [],
+  };
+  evidence.runs = fullValidationRunEntries(evidence.provenance.fullValidation).map((entry) => ({
+    ...entry,
+    runId: Number(entry.runId),
+    runAttempt: entry.runAttempt ?? 1,
+    path: `${entry.workflowPath}@refs/heads/main`,
+    status: "completed",
+    conclusion: "success",
+  }));
+  return evidence;
+}
+
 test("requires an exact package spec bound to the release id", () => {
   assert.equal(validateReleaseIdentity(releaseIdentity).releaseRef, releaseIdentity.releaseRef);
   assert.throws(
@@ -107,6 +146,29 @@ test("selects one live attempt-qualified artifact", () => {
         parentRun,
       ),
     /identity is invalid/u,
+  );
+});
+
+test("builds exact-attempt workflow run and job API paths", () => {
+  assert.equal(
+    workflowRunPath("openclaw/openclaw", parentRun.id, parentRun.run_attempt),
+    `/repos/openclaw/openclaw/actions/runs/${parentRun.id}/attempts/${parentRun.run_attempt}`,
+  );
+  assert.equal(
+    workflowRunJobsPath("openclaw/openclaw", parentRun.id, parentRun.run_attempt),
+    `/repos/openclaw/openclaw/actions/runs/${parentRun.id}/attempts/${parentRun.run_attempt}/jobs`,
+  );
+  assert.equal(
+    workflowRunPath("other/repository", parentRun.id),
+    `/repos/other/repository/actions/runs/${parentRun.id}`,
+  );
+  assert.equal(
+    workflowRunJobsPath("other/repository", parentRun.id, 2),
+    `/repos/other/repository/actions/runs/${parentRun.id}/attempts/2/jobs`,
+  );
+  assert.equal(
+    workflowRunPath("openclaw/openclaw", parentRun.id),
+    `/repos/openclaw/openclaw/actions/runs/${parentRun.id}`,
   );
 });
 
@@ -161,34 +223,7 @@ test("rejects incomplete GitHub pagination", async () => {
 });
 
 test("revalidates the persisted full-validation evidence identity", () => {
-  const evidence = {
-    release: {
-      id: releaseIdentity.releaseId,
-      ref: releaseIdentity.releaseRef,
-      packageSpec: releaseIdentity.packageSpec,
-    },
-    provenance: {
-      releaseRef: { status: "resolved", resolvedSha: manifest.targetSha },
-      fullValidation: {
-        releaseIdentity,
-        parentRun: {
-          runId: String(parentRun.id),
-          runAttempt: parentRun.run_attempt,
-          workflowRef: parentRun.head_branch,
-          workflowSha: parentRun.head_sha,
-        },
-        manifest: validateFullValidationManifest(manifest, parentRun),
-      },
-    },
-    runs: [],
-  };
-  evidence.runs = fullValidationRunEntries(evidence.provenance.fullValidation).map((entry) => ({
-    ...entry,
-    runId: Number(entry.runId),
-    path: `${entry.workflowPath}@refs/heads/main`,
-    status: "completed",
-    conclusion: "success",
-  }));
+  const evidence = persistedEvidence();
   assert.equal(
     validateEvidenceDocument(evidence, releaseIdentity, { requireFullValidation: true }),
     evidence,
@@ -226,6 +261,81 @@ test("revalidates the persisted full-validation evidence identity", () => {
       ),
     /runs are inconsistent/u,
   );
+  assert.equal(
+    validateEvidenceDocument(
+      {
+        ...evidence,
+        schemaVersion: 1,
+        runs: evidence.runs.map(({ runAttempt: _runAttempt, ...run }) => run),
+      },
+      releaseIdentity,
+      { requireFullValidation: true },
+    ).schemaVersion,
+    1,
+  );
+});
+
+test("deduplicates an exact attempt and rejects attempt rollback", () => {
+  const evidence = persistedEvidence();
+  const source = evidence.provenance.fullValidation;
+  assert.equal(
+    classifyFullValidationUpdate(evidence, source, releaseIdentity),
+    "duplicate",
+  );
+  assert.equal(
+    classifyFullValidationUpdate(
+      {
+        ...evidence,
+        schemaVersion: 1,
+        provenance: {
+          ...evidence.provenance,
+          fullValidation: {
+            ...source,
+            parentRun: {
+              runId: source.parentRun.runId,
+              runAttempt: source.parentRun.runAttempt,
+              workflowRef: source.parentRun.workflowRef,
+              workflowSha: source.parentRun.workflowSha,
+            },
+          },
+        },
+        runs: evidence.runs.map(({ runAttempt: _runAttempt, ...run }) => run),
+      },
+      source,
+      releaseIdentity,
+    ),
+    "update",
+  );
+  assert.equal(
+    classifyFullValidationUpdate(
+      evidence,
+      {
+        ...source,
+        parentRun: { ...source.parentRun, runAttempt: parentRun.run_attempt + 1 },
+        manifest: { ...source.manifest, runAttempt: parentRun.run_attempt + 1 },
+      },
+      releaseIdentity,
+    ),
+    "update",
+  );
+  assert.throws(
+    () =>
+      classifyFullValidationUpdate(
+        {
+          ...evidence,
+          provenance: {
+            ...evidence.provenance,
+            fullValidation: {
+              ...source,
+              parentRun: { ...source.parentRun, runAttempt: parentRun.run_attempt + 1 },
+            },
+          },
+        },
+        source,
+        releaseIdentity,
+      ),
+    /stale attempt/u,
+  );
 });
 
 test("release evidence workflows pin actions and verify the published tree", () => {
@@ -244,6 +354,14 @@ test("release evidence workflows pin actions and verify the published tree", () 
     assert.match(workflow, /group: openclaw-release-evidence-\$\{/u);
     assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/u);
     assert.match(workflow, /environment: release-evidence/u);
+    if (path.includes("from-full-validation")) {
+      assert.match(workflow, /full_validation_run_attempt/u);
+      assert.match(
+        workflow,
+        /repository_dispatch requires a positive full_validation_run_attempt/u,
+      );
+      assert.match(workflow, /--full-validation-run-attempt/u);
+    }
     assert.match(workflow, /generated_tree="\$\(git write-tree\)"[\s\S]*git rev-parse "HEAD:\$\{evidence_path\}"/u);
     assert.match(workflow, /git rev-parse "origin\/main:\$\{evidence_path\}"/u);
   }

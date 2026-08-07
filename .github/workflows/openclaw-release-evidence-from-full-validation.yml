@@ -7,6 +7,11 @@ on:
         description: Public openclaw/openclaw Full Release Validation run id
         required: true
         type: string
+      full_validation_run_attempt:
+        description: Optional exact Full Release Validation attempt; blank uses the current attempt
+        required: false
+        default: ""
+        type: string
       release_id:
         description: Release evidence directory name, for example 2026.4.27-beta.1
         required: true
@@ -36,6 +41,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   NODE_VERSION: "24.x"
   FULL_VALIDATION_RUN_ID: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.full_validation_run_id || inputs.full_validation_run_id }}
+  FULL_VALIDATION_RUN_ATTEMPT: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.full_validation_run_attempt || inputs.full_validation_run_attempt }}
   RELEASE_ID: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_id || inputs.release_id }}
   RELEASE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_ref || inputs.release_ref }}
   PACKAGE_SPEC: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.package_spec || inputs.package_spec }}
@@ -73,8 +79,17 @@ jobs:
           GH_TOKEN: ${{ secrets.OPENCLAW_RELEASES_PRIVATE_PUSH_TOKEN }}
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "repository_dispatch" && ! "$FULL_VALIDATION_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::repository_dispatch requires a positive full_validation_run_attempt."
+            exit 1
+          fi
+          attempt_args=()
+          if [[ -n "$FULL_VALIDATION_RUN_ATTEMPT" ]]; then
+            attempt_args=(--full-validation-run-attempt "$FULL_VALIDATION_RUN_ATTEMPT")
+          fi
           node scripts/openclaw-release-evidence-from-full-validation.mjs \
             --full-validation-run-id "$FULL_VALIDATION_RUN_ID" \
+            "${attempt_args[@]}" \
             --release-id "$RELEASE_ID" \
             --release-ref "$RELEASE_REF" \
             --package-spec "$PACKAGE_SPEC" \

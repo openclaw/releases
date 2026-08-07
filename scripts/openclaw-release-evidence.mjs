@@ -4,12 +4,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  classifyFullValidationUpdate,
   githubBinary,
   githubJson,
   githubPaged,
   resolvePublicRelease,
   resolveReleaseRef,
   validateEvidenceDocument,
+  workflowRunJobsPath,
+  workflowRunPath,
 } from "./openclaw-release-evidence-contract.mjs";
 
 const DEFAULT_EVIDENCE_REPO = "openclaw/releases";
@@ -351,6 +354,7 @@ function normalizeRun(run, entry, jobs, artifacts) {
     label: entry.label,
     repo: entry.repo,
     runId: Number(entry.runId),
+    runAttempt: run.run_attempt,
     blocking: entry.blocking,
     status: run.status,
     conclusion: run.conclusion,
@@ -986,19 +990,53 @@ async function main() {
   const previousEvidence = await readPreviousEvidence(
     path.join(outputDir, "release-evidence.json"),
   );
+  if (
+    fullValidation &&
+    classifyFullValidationUpdate(previousEvidence, fullValidation, {
+      releaseId: args.releaseId,
+      releaseRef: args.releaseRef,
+      packageSpec: args.packageSpec,
+    }) === "duplicate"
+  ) {
+    console.log(
+      `Evidence ${args.releaseId} already records Full Release Validation ${fullValidation.parentRun.runId} attempt ${fullValidation.parentRun.runAttempt}`,
+    );
+    return;
+  }
 
   const runs = [];
   for (const entry of runEntries) {
     const [owner, repoName] = entry.repo.split("/");
-    const run = await githubJson(`/repos/${owner}/${repoName}/actions/runs/${entry.runId}`);
+    const exactParent =
+      fullValidation &&
+      entry.label === "full-release-validation" &&
+      entry.repo === "openclaw/openclaw" &&
+      String(entry.runId) === String(fullValidation.parentRun.runId);
+    const runAttempt = exactParent ? fullValidation.parentRun.runAttempt : undefined;
+    const run = await githubJson(workflowRunPath(entry.repo, entry.runId, runAttempt));
+    if (runAttempt && run.run_attempt !== runAttempt) {
+      throw new Error(
+        `Run ${entry.repo} ${entry.runId} attempt mismatch: expected ${runAttempt}, got ${run.run_attempt}`,
+      );
+    }
     const jobs = await githubPaged(
-      `/repos/${owner}/${repoName}/actions/runs/${entry.runId}/jobs`,
+      workflowRunJobsPath(entry.repo, entry.runId, runAttempt),
       "jobs",
     );
-    const artifacts = await githubPaged(
+    let artifacts = await githubPaged(
       `/repos/${owner}/${repoName}/actions/runs/${entry.runId}/artifacts`,
       "artifacts",
     );
+    if (exactParent) {
+      artifacts = artifacts.filter(
+        (artifact) => String(artifact.id) === String(fullValidation.artifact.id),
+      );
+      if (artifacts.length !== 1) {
+        throw new Error(
+          `Full validation artifact ${fullValidation.artifact.id} is not uniquely available`,
+        );
+      }
+    }
     const normalized = normalizeRun(run, entry, jobs, artifacts);
     runs.push(normalized);
   }
@@ -1010,7 +1048,7 @@ async function main() {
   }
 
   const evidence = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     generatedBy: {
       repository: process.env.GITHUB_REPOSITORY || DEFAULT_EVIDENCE_REPO,

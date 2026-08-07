@@ -9,6 +9,7 @@ import {
 } from "./openclaw-release-evidence-contract.mjs";
 const OPTIONS = new Map([
   ["--full-validation-run-id", "fullValidationRunId"],
+  ["--full-validation-run-attempt", "fullValidationRunAttempt"],
   ["--release-id", "releaseId"],
   ["--release-ref", "releaseRef"],
   ["--package-spec", "packageSpec"],
@@ -20,7 +21,7 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--help" || argv[index] === "-h") {
       console.log(
-        "Usage: openclaw-release-evidence-from-full-validation.mjs --full-validation-run-id <id> --release-id <version> --release-ref <ref> --package-spec <spec> [--notes-file <file>] [--output-root <dir>]",
+        "Usage: openclaw-release-evidence-from-full-validation.mjs --full-validation-run-id <id> [--full-validation-run-attempt <attempt>] --release-id <version> --release-ref <ref> --package-spec <spec> [--notes-file <file>] [--output-root <dir>]",
       );
       process.exit(0);
     }
@@ -32,6 +33,12 @@ function parseArgs(argv) {
   }
   if (!/^[1-9][0-9]*$/u.test(args.fullValidationRunId ?? "")) {
     throw new Error("--full-validation-run-id must be numeric");
+  }
+  if (
+    args.fullValidationRunAttempt !== undefined &&
+    !/^[1-9][0-9]*$/u.test(args.fullValidationRunAttempt)
+  ) {
+    throw new Error("--full-validation-run-attempt must be a positive integer");
   }
   return args;
 }
@@ -45,7 +52,9 @@ async function main() {
   await fs.writeFile(
     runsFile,
     `${fullValidationRunEntries(source)
-      .map((entry) => `${entry.label} ${entry.repo} ${entry.runId} ${entry.blocking ? "blocking" : "advisory"}`)
+      .map((entry) =>
+        `${entry.label} ${entry.repo} ${entry.runId} ${entry.blocking ? "blocking" : "advisory"}`,
+      )
       .join("\n")}\n`,
   );
   await fs.writeFile(sourceFile, `${JSON.stringify(source, null, 2)}\n`);

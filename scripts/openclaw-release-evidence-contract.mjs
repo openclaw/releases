@@ -51,6 +51,19 @@ async function githubJsonOrNull(pathname) {
 export async function githubBinary(url) {
   return request(url, { binary: true });
 }
+export function workflowRunPath(repository, workflowRunId, runAttempt) {
+  const normalizedRunId = runId(workflowRunId, "workflow run id");
+  if (runAttempt === undefined || runAttempt === null || runAttempt === "") {
+    return `/repos/${repository}/actions/runs/${normalizedRunId}`;
+  }
+  return `${workflowRunPath(repository, normalizedRunId)}/attempts/${runId(
+    runAttempt,
+    "workflow run attempt",
+  )}`;
+}
+export function workflowRunJobsPath(repository, workflowRunId, runAttempt) {
+  return `${workflowRunPath(repository, workflowRunId, runAttempt)}/jobs`;
+}
 export async function githubPaged(
   pathname,
   key,
@@ -271,9 +284,13 @@ async function readManifest(artifact) {
 }
 export async function loadFullValidationSource(input) {
   validateReleaseIdentity(input);
-  const parent = await githubJson(`/repos/${PUBLIC_REPO}/actions/runs/${input.fullValidationRunId}`);
+  const parent = await githubJson(
+    workflowRunPath(PUBLIC_REPO, input.fullValidationRunId, input.fullValidationRunAttempt),
+  );
   if (
     String(parent.id) !== String(input.fullValidationRunId) ||
+    (input.fullValidationRunAttempt &&
+      String(parent.run_attempt) !== String(input.fullValidationRunAttempt)) ||
     parent.name !== WORKFLOW ||
     parent.path?.split("@", 1)[0] !== WORKFLOW_PATH ||
     parent.event !== "workflow_dispatch" ||
@@ -281,6 +298,7 @@ export async function loadFullValidationSource(input) {
     parent.conclusion !== "success" ||
     !Number.isInteger(parent.run_attempt) ||
     parent.run_attempt < 1 ||
+    Number.isNaN(Date.parse(parent.updated_at ?? "")) ||
     !SHA.test(parent.head_sha ?? "")
   ) {
     throw new Error(`Full release validation run ${input.fullValidationRunId} is not successful`);
@@ -310,7 +328,8 @@ export async function loadFullValidationSource(input) {
       repo: PUBLIC_REPO, runId: String(parent.id), runAttempt: parent.run_attempt,
       workflowName: parent.name, workflowPath: parent.path,
       workflowRef: parent.head_branch, workflowSha: parent.head_sha,
-      status: parent.status, conclusion: parent.conclusion, htmlUrl: parent.html_url,
+      status: parent.status, conclusion: parent.conclusion, updatedAt: parent.updated_at,
+      htmlUrl: parent.html_url,
     },
     artifact: {
       id: String(artifact.id), name: artifact.name, digest: artifact.digest,
@@ -327,7 +346,10 @@ export function fullValidationRunEntries(source) {
   const child = source.manifest.childRuns;
   const entries = [
     { label: "full-release-validation", runId: source.parentRun.runId, blocking: false,
-      workflowPath: WORKFLOW_PATH },
+      runAttempt: source.parentRun.runAttempt, headSha: source.parentRun.workflowSha,
+      updatedAt: source.parentRun.updatedAt, workflowPath: WORKFLOW_PATH },
+    // Manifest v3 only qualifies the parent attempt. Child attempt pinning needs an
+    // additive upstream protocol field; do not infer it from mutable run state here.
     { label: "normal-ci", runId: child.normalCi, blocking: true, workflowPath: ".github/workflows/ci.yml" },
     { label: "plugin-prerelease", runId: child.pluginPrerelease, blocking: true,
       workflowPath: ".github/workflows/plugin-prerelease.yml" },
@@ -348,6 +370,11 @@ export function fullValidationRunEntries(source) {
 }
 export function validateEvidenceDocument(value, expected, { requireFullValidation = false } = {}) {
   validateReleaseIdentity(expected);
+  const schemaVersion = value?.schemaVersion ?? 1;
+  if (schemaVersion !== 1 && schemaVersion !== 2) {
+    throw new Error("Release evidence schema version is unsupported");
+  }
+  const requiresRunAttempt = schemaVersion >= 2;
   const runs = value?.runs;
   if (
     value?.release?.id !== expected.releaseId ||
@@ -360,7 +387,9 @@ export function validateEvidenceDocument(value, expected, { requireFullValidatio
     runs.some((run) =>
       !run || typeof run.label !== "string" || !run.label ||
       typeof run.repo !== "string" || !run.repo.includes("/") ||
-      !RUN_ID.test(String(run.runId ?? "")) || typeof run.blocking !== "boolean") ||
+      !RUN_ID.test(String(run.runId ?? "")) ||
+      (requiresRunAttempt && !RUN_ID.test(String(run.runAttempt ?? ""))) ||
+      typeof run.blocking !== "boolean") ||
     new Set(runs.map((run) => run.label)).size !== runs.length
   ) {
     throw new Error("Release evidence identity does not match");
@@ -392,6 +421,11 @@ export function validateEvidenceDocument(value, expected, { requireFullValidatio
       expectedRuns.length !== runs.length ||
       expectedRuns.some((entry) => !runs.some((run) =>
         run.label === entry.label && String(run.runId) === entry.runId &&
+        (!requiresRunAttempt ||
+          entry.runAttempt === undefined ||
+          run.runAttempt === entry.runAttempt) &&
+        (entry.headSha === undefined || run.headSha === entry.headSha) &&
+        (entry.updatedAt === undefined || run.updatedAt === entry.updatedAt) &&
         run.repo === entry.repo && run.blocking === entry.blocking &&
         run.path?.split("@", 1)[0] === entry.workflowPath &&
         run.status === "completed" && run.conclusion === "success"))
@@ -400,6 +434,50 @@ export function validateEvidenceDocument(value, expected, { requireFullValidatio
     }
   }
   return value;
+}
+export function classifyFullValidationUpdate(previousEvidence, source, expected) {
+  const previousSource = previousEvidence?.provenance?.fullValidation;
+  if (!previousSource) {
+    return "update";
+  }
+  const previousRunId = String(previousSource.parentRun?.runId ?? "");
+  const currentRunId = String(source.parentRun?.runId ?? "");
+  if (previousRunId !== currentRunId) {
+    return "update";
+  }
+  const previousAttempt = Number(previousSource.parentRun?.runAttempt);
+  const currentAttempt = Number(source.parentRun?.runAttempt);
+  if (!Number.isSafeInteger(previousAttempt) || previousAttempt < 1) {
+    return "update";
+  }
+  if (!Number.isSafeInteger(currentAttempt) || currentAttempt < 1) {
+    throw new Error("Full validation source attempt is invalid");
+  }
+  if (previousAttempt > currentAttempt) {
+    throw new Error(
+      `Refusing to replace Full Release Validation ${currentRunId} attempt ${previousAttempt} with stale attempt ${currentAttempt}`,
+    );
+  }
+  if (previousAttempt === currentAttempt) {
+    if (previousEvidence.schemaVersion !== 2) {
+      return "update";
+    }
+    if (
+      previousSource.parentRun?.workflowSha !== source.parentRun?.workflowSha ||
+      previousSource.parentRun?.updatedAt !== source.parentRun?.updatedAt
+    ) {
+      throw new Error(
+        `Full Release Validation ${currentRunId} attempt ${currentAttempt} identity changed`,
+      );
+    }
+    try {
+      validateEvidenceDocument(previousEvidence, expected, { requireFullValidation: true });
+      return "duplicate";
+    } catch {
+      return "update";
+    }
+  }
+  return "update";
 }
 async function cli() {
   if (process.argv[2] !== "verify-evidence") {

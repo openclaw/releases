@@ -115,7 +115,11 @@ fail the release by itself.
 `full-release-validation-<run-id>-<attempt>` manifest artifact. The ingest
 rejects missing, duplicate, expired, malformed, or identity-mismatched
 artifacts; child run ids and evidence-reuse provenance come only from the
-validated manifest.
+validated manifest. Repository dispatches must provide the exact parent run
+attempt; manual dispatches may omit it to resolve the current attempt. Schema
+v2 records `runAttempt` on every persisted run while schema v1 remains readable.
+Exact duplicate parent attempts are no-ops, and an older attempt cannot replace
+a newer attempt for the same run id.
 
 Both evidence workflows require an exact package spec and release ref. They
 commit with the workflow's same-repository `github.token`, then verify that the
@@ -129,6 +133,7 @@ gh workflow run openclaw-release-evidence-from-full-validation.yml \
   --repo openclaw/releases \
   --ref main \
   -f full_validation_run_id=24977011361 \
+  -f full_validation_run_attempt=1 \
   -f release_id=2026.4.24 \
   -f release_ref=v2026.4.24 \
   -f package_spec=openclaw@2026.4.24
