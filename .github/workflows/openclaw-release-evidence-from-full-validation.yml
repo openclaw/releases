@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -90,15 +90,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit evidence to main
-        env:
-          PUSH_TOKEN: ${{ secrets.OPENCLAW_RELEASES_PRIVATE_PUSH_TOKEN }}
         run: |
           set -euo pipefail
           evidence_path="evidence/${RELEASE_ID}"
-          if [[ -z "${PUSH_TOKEN// }" ]]; then
-            echo "::error::OPENCLAW_RELEASES_PRIVATE_PUSH_TOKEN is required to push release evidence directly to main."
-            exit 1
-          fi
           git config user.name "openclaw-release-bot"
           git config user.email "release-bot@openclaw.ai"
           git add "${evidence_path}"
@@ -107,7 +101,6 @@ jobs:
             exit 0
           fi
           git commit -m "Evidence: record ${RELEASE_ID}"
-          git remote set-url origin "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           for attempt in 1 2 3 4 5; do
             git fetch origin main
             if git rebase origin/main && git push origin HEAD:main; then

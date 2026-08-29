@@ -66,6 +66,12 @@ Evidence records do not store raw logs, provider payloads, live-channel
 transcripts, signing material, credentials, environment dumps, or downloaded
 release artifacts.
 
+Both evidence workflows publish with checkout-managed ephemeral `GITHUB_TOKEN`
+credentials and `contents:write`; they do not require a persistent push PAT.
+Evidence commits do not trigger push-triggered Actions workflows. Auth repair
+verification must use a new, clearly labeled verification record because
+regenerating an existing release ID overwrites its stored evidence.
+
 ### Manual Evidence
 
 Manual evidence input format:
