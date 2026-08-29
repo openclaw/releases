@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-29T02:40:18.278Z",
+  "generatedBy": {
+    "repository": "openclaw/releases",
+    "runId": 33229528671,
+    "workflow": "OpenClaw Release Evidence"
+  },
+  "release": {
+    "id": "octopool-0.5.9",
+    "ref": "v0.5.9",
+    "packageSpec": "octopool@0.5.9"
+  },
+  "provenance": {
+    "releaseRef": {
+      "input": "v0.5.9",
+      "status": "not-found",
+      "note": "Could not resolve release ref in openclaw/openclaw.",
+      "matchingRunLabels": []
+    },
+    "npmPackage": {
+      "provided": true,
+      "status": "invalid",
+      "spec": "octopool@0.5.9",
+      "packageName": "octopool",
+      "selector": "0.5.9",
+      "error": "only openclaw package specs are supported"
+    },
+    "npmGitHeadMatchesReleaseRef": false,
+    "npmGitHeadMatchesRun": [],
+    "packageSpecRecorded": true
+  },
+  "sourceRepositories": [
+    "openclaw/homebrew-tap",
+    "openclaw/octopool"
+  ],
+  "summary": {
+    "blockingPassed": 3,
+    "blockingFailed": 0,
+    "blockingSkipped": 0,
+    "blockingIncomplete": 0,
+    "advisoryPassed": 0,
+    "advisoryFailed": 0,
+    "advisorySkipped": 0,
+    "advisoryIncomplete": 0
+  },
+  "runs": [
+    {
+      "label": "release",
+      "repo": "openclaw/octopool",
+      "runId": 33225542541,
+      "blocking": true,
+      "status": "completed",
+      "conclusion": "success",
+      "workflowName": "release",
+      "event": "push",
+      "headBranch": "v0.5.9",
+      "headSha": "b95ae653e17f50ec29e064810d798cdbba74a5e6",
+      "path": ".github/workflows/release.yml",
+      "createdAt": "2026-08-29T01:07:32Z",
+      "updatedAt": "2026-08-29T01:08:42Z",
+      "runStartedAt": "2026-08-29T01:07:32Z",
+      "durationMs": 70000,
+      "totalJobDurationMs": 68000,
+      "maxQueueDurationMs": 2000,
+      "slowestJobs": [
+        {
+          "id": 99028456948,
+          "name": "goreleaser",
+          "conclusion": "success",
+          "durationMs": 68000,
+          "htmlUrl": "https://github.com/openclaw/octopool/actions/runs/33225542541/job/99028456948"
+        }
+      ],
+      "longestQueues": [
+        {
+          "id": 99028456948,
+          "name": "goreleaser",
+          "conclusion": "success",
+          "durationMs": 68000,
+          "queueDurationMs": 2000,
+          "htmlUrl": "https://github.com/openclaw/octopool/actions/runs/33225542541/job/99028456948"
+        }
+      ],
+      "htmlUrl": "https://github.com/openclaw/octopool/actions/runs/33225542541",
+      "jobs": [
+        {
+          "id": 99028456948,
+          "name": "goreleaser",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-08-29T01:07:34Z",
+          "completedAt": "2026-08-29T01:08:42Z",
+          "durationMs": 68000,
+          "queueDurationMs": 2000,
+          "htmlUrl": "https://github.com/openclaw/octopool/actions/runs/33225542541/job/99028456948"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "label": "check",
+      "repo": "openclaw/octopool",
+      "runId": 33225517546,
+      "blocking": true,
+      "status": "completed",
+      "conclusion": "success",
+      "workflowName": "CI",
+      "event": "push",
+      "headBranch": "main",
+      "headSha": "b95ae653e17f50ec29e064810d798cdbba74a5e6",
+      "path": ".github/workflows/ci.yml",
+      "createdAt": "2026-08-29T01:07:00Z",
+      "updatedAt": "2026-08-29T01:10:36Z",
+      "runStartedAt": "2026-08-29T01:07:00Z",
+      "durationMs": 216000,
+      "totalJobDurationMs": 211000,
+      "maxQueueDurationMs": 5000,
+      "slowestJobs": [
+        {
+          "id": 99028385880,
+          "name": "Check",
+          "conclusion": "success",
+          "durationMs": 211000,
+          "htmlUrl": "https://github.com/openclaw/octopool/actions/runs/33225517546/job/99028385880"
+        }
+      ],
+      "longestQueues": [
+        {
+          "id": 99028385880,
+          "name": "Check",
+          "conclusion": "success",
+          "durationMs": 211000,
+          "queueDurationMs": 5000,
+          "htmlUrl": "https://github.com/openclaw/octopool/actions/runs/33225517546/job/99028385880"
+        }
+      ],
+      "htmlUrl": "https://github.com/openclaw/octopool/actions/runs/33225517546",
+      "jobs": [
+        {
+          "id": 99028385880,
+          "name": "Check",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-08-29T01:07:05Z",
+          "completedAt": "2026-08-29T01:10:36Z",
+          "durationMs": 211000,
+          "queueDurationMs": 5000,
+          "htmlUrl": "https://github.com/openclaw/octopool/actions/runs/33225517546/job/99028385880"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "label": "homebrew",
+      "repo": "openclaw/homebrew-tap",
+      "runId": 33226092782,
+      "blocking": true,
+      "status": "completed",
+      "conclusion": "success",
+      "workflowName": "Update octopool for v0.5.9 (request-id=octopool-0.5.9-20260828-uvnv4q; source-tag-object=2b578d90e36e3f247a5e9ba3dcd2f824790d679f; source-tag-commit=b95ae653e17f50ec29e064810d798cdbba74a5e6)",
+      "event": "workflow_dispatch",
+      "headBranch": "main",
+      "headSha": "ad6348abcb88804b2b5e801a474dc51bbe64e1ad",
+      "path": ".github/workflows/update-formula.yml",
+      "createdAt": "2026-08-29T01:19:24Z",
+      "updatedAt": "2026-08-29T01:20:00Z",
+      "runStartedAt": "2026-08-29T01:19:24Z",
+      "durationMs": 36000,
+      "totalJobDurationMs": 31000,
+      "maxQueueDurationMs": 4000,
+      "slowestJobs": [
+        {
+          "id": 99030042366,
+          "name": "update-formula",
+          "conclusion": "success",
+          "durationMs": 31000,
+          "htmlUrl": "https://github.com/openclaw/homebrew-tap/actions/runs/33226092782/job/99030042366"
+        }
+      ],
+      "longestQueues": [
+        {
+          "id": 99030042366,
+          "name": "update-formula",
+          "conclusion": "success",
+          "durationMs": 31000,
+          "queueDurationMs": 4000,
+          "htmlUrl": "https://github.com/openclaw/homebrew-tap/actions/runs/33226092782/job/99030042366"
+        }
+      ],
+      "htmlUrl": "https://github.com/openclaw/homebrew-tap/actions/runs/33226092782",
+      "jobs": [
+        {
+          "id": 99030042366,
+          "name": "update-formula",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-08-29T01:19:28Z",
+          "completedAt": "2026-08-29T01:19:59Z",
+          "durationMs": 31000,
+          "queueDurationMs": 4000,
+          "htmlUrl": "https://github.com/openclaw/homebrew-tap/actions/runs/33226092782/job/99030042366"
+        }
+      ],
+      "artifacts": []
+    }
+  ],
+  "performance": []
+}
