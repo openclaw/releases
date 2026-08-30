@@ -46,8 +46,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  NODE_VERSION: "24.x"
-  PNPM_VERSION: "10.23.0"
+  NODE_VERSION: "24.19.0"
   OPENCLAW_REPOSITORY: openclaw/openclaw
   EXPECTED_DEVELOPER_IDENTITY: "Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)"
   EXPECTED_DEVELOPER_TEAM_ID: FWJYW4S8P8
@@ -133,7 +132,7 @@ jobs:
   build_sign_and_package:
     needs: prepare
     if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
-    runs-on: macos-15
+    runs-on: macos-26
     # Match npm-release: signing and notarization stay behind the mac-release
     # environment's required release-manager approval gate.
     environment: mac-release
@@ -148,6 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone https://github.com/openclaw/openclaw.git source
+          git -C source rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}" >/dev/null
           if [[ -z "${SOURCE_REF}" ]]; then
             git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
             exit 0
@@ -181,7 +181,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: ${{ env.PNPM_VERSION }}
+          package_json_file: source/package.json
           run_install: false
 
       - name: Setup Node.js
@@ -197,9 +197,9 @@ jobs:
           CI: "true"
         run: pnpm install --frozen-lockfile
 
-      - name: Select Xcode 26.1
+      - name: Select release toolchain
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.1.app
+          sudo xcode-select -s /Applications/Xcode_26.6.app
           xcodebuild -version
           swift --version
 
@@ -210,12 +210,6 @@ jobs:
           key: ${{ runner.os }}-swiftpm-release-${{ hashFiles('source/apps/macos/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-swiftpm-release-
-
-      - name: Ensure matching public GitHub release exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
 
       - name: Resolve package version
         id: package_version
