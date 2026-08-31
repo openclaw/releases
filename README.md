@@ -17,6 +17,11 @@ maintenance, and durable release evidence separate from the product source repo.
 
 ## Workflows
 
+- `.github/workflows/ci.yml` checks the repository scripts, runs workflow
+  regression tests, and verifies package-manager setup plus cache/artifact round
+  trips on Linux and macOS for pull requests and pushes to `main`. It uses a
+  read-only repository token and temporary fixtures; it does not publish releases
+  or update the evidence ledger.
 - `.github/workflows/openclaw-macos-validate.yml` runs the release-blocking macOS
   Swift test lane for an existing OpenClaw tag.
 - `.github/workflows/openclaw-macos-publish.yml` prepares and promotes signed
@@ -31,6 +36,15 @@ maintenance, and durable release evidence separate from the product source repo.
 The macOS publish workflow builds from public `openclaw/openclaw` tags and uses
 the public repo's packaging scripts. Real publish runs promote previously
 prepared artifacts rather than rebuilding during the final upload step.
+
+The scripts use only Node.js built-ins and require no dependency installation or
+build step. Run local checks with Node.js 24 and Python 3:
+
+```bash
+node --check scripts/openclaw-release-evidence.mjs
+node --check scripts/openclaw-release-evidence-from-full-validation.mjs
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+```
 
 ## Release Approval
 
