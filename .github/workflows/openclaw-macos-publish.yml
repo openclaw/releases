@@ -46,7 +46,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  NODE_VERSION: "24.19.0"
+  NODE_VERSION: "24.20.0"
   OPENCLAW_REPOSITORY: openclaw/openclaw
   EXPECTED_DEVELOPER_IDENTITY: "Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)"
   EXPECTED_DEVELOPER_TEAM_ID: FWJYW4S8P8
@@ -179,13 +179,13 @@ jobs:
           exit 1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: source/package.json
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -204,7 +204,7 @@ jobs:
           swift --version
 
       - name: Cache SwiftPM
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/org.swift.swiftpm
           key: ${{ runner.os }}-swiftpm-release-${{ hashFiles('source/apps/macos/Package.resolved') }}
