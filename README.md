@@ -37,6 +37,38 @@ The macOS publish workflow builds from public `openclaw/openclaw` tags and uses
 the public repo's packaging scripts. Real publish runs promote previously
 prepared artifacts rather than rebuilding during the final upload step.
 
+### Resume a failed macOS notarization
+
+Signed preflights retain a `macos-notarization-<tag>-<run-id>-<attempt>` Actions
+artifact when the packaging script produces a valid recovery checkpoint. It
+contains the signed app, symbols, available DMG, Apple submission records, and
+the producer's Sparkle tools. Private signing keys are never included. Retention
+is 30 days; keep these payloads in Actions rather than the evidence ledger.
+
+Dispatch another signed preflight from `main`, using the checkpoint's exact
+public source commit and failed run attempt:
+
+```bash
+gh workflow run openclaw-macos-publish.yml --repo openclaw/releases --ref main \
+  -f tag=vYYYY.M.PATCH -f source_ref=<checkpoint-source-sha> \
+  -f preflight_only=true -f smoke_test_only=false \
+  -f resume_notarization_run_id=<failed-run-id> \
+  -f resume_notarization_run_attempt=<failed-run-attempt> \
+  -f public_release_branch=release/YYYY.M.PATCH
+```
+
+Recovery still requires `mac-release` approval. It verifies the producer,
+release/source binding, checkpoint hashes and signing identity, then resumes
+Apple submissions without rebuilding the app. An existing signed DMG is reused;
+if the failure preceded DMG creation, packaging creates and signs it after the
+app is notarized. The original Sparkle tools generate the final appcast.
+
+Use the successful recovery run as `preflight_run_id` for ordinary promotion,
+together with the successful validation run for the same source. Recovery does
+not replace validation or allow direct promotion from a failed run. Older source
+commits without the recovery interface, expired/missing checkpoints, and changed
+source commits fail explicitly; recovery never falls back to rebuilding.
+
 The scripts use only Node.js built-ins and require no dependency installation or
 build step. Run local checks with Node.js 24 and Python 3:
 
