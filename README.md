@@ -35,7 +35,10 @@ maintenance, and durable release evidence separate from the product source repo.
 
 The macOS publish workflow builds from public `openclaw/openclaw` tags and uses
 the public repo's packaging scripts. Real publish runs promote previously
-prepared artifacts rather than rebuilding during the final upload step.
+prepared artifacts rather than rebuilding during the final upload step. Stable
+appcasts must match the packaged app's version and build, release ZIP URL and
+byte length, and contain a Sparkle signature before retention and promotion.
+An existing seed feed alone is not valid release output.
 
 ### Resume a failed macOS notarization
 
