@@ -360,23 +360,13 @@ jobs:
           pnpm check:changelog-attributions
           pnpm check:host-env-policy:swift
 
-      - name: Build
+      - name: Build and verify release contents
         if: ${{ inputs.resume_notarization_run_id == '' }}
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=8192
-        run: pnpm build
-
-      - name: Build Control UI if missing
-        if: ${{ inputs.resume_notarization_run_id == '' }}
-        working-directory: source
-        run: |
-          set -euo pipefail
-          if [[ -f dist/control-ui/index.html ]]; then
-            echo "Control UI was already built by pnpm build; skipping."
-            exit 0
-          fi
-          node scripts/ui.js build
+        # release:check owns the package build, including Control UI assets.
+        run: pnpm release:check
 
       - name: Validate release tag and package metadata
         if: ${{ inputs.resume_notarization_run_id == '' }}
@@ -414,13 +404,6 @@ jobs:
             }
           '
           echo "::warning::Allowing late mac-only recovery for ${RELEASE_TAG}; published npm metadata for openclaw@${package_version} is present."
-
-      - name: Verify release contents
-        if: ${{ inputs.resume_notarization_run_id == '' }}
-        working-directory: source
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-        run: pnpm release:check
 
       - name: Capture release provenance
         id: release_provenance
