@@ -38,7 +38,9 @@ the public repo's packaging scripts. Real publish runs promote previously
 prepared artifacts rather than rebuilding during the final upload step. Stable
 appcasts must match the packaged app's version and build, release ZIP URL and
 byte length, and contain a Sparkle signature before retention and promotion.
-An existing seed feed alone is not valid release output.
+An existing seed feed alone is not valid release output. The preflight uses
+`pnpm release:check` to build and validate package contents once before metadata
+validation; native app packaging retains its own matching runtime build.
 
 ### Resume a failed macOS notarization
 

@@ -23,6 +23,56 @@ def step_script(source, name):
 
 
 class MacOSWorkflowTests(unittest.TestCase):
+    def test_release_build_is_owned_by_validation_before_metadata_and_skipped_on_resume(self):
+        publish = workflow('openclaw-macos-publish.yml')
+        phase = publish.split('      - name: Release packaging guards\n', 1)[1].split('      - name: Capture release provenance\n', 1)[0]
+        steps = phase.split('      - name: ')[1:]
+        for resume, fail, expected in [('', False, ['release:check', 'release:openclaw:npm:check']),
+                                        ('', True, ['release:check']), ('123', False, [])]:
+            with self.subTest(resume=resume, fail=fail), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                pnpm = root / 'pnpm'
+                pnpm.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, sys
+command = sys.argv[1]
+with open('calls', 'a') as calls:
+    calls.write(json.dumps({'command': command, 'heap': os.environ.get('NODE_OPTIONS')}) + '\\n')
+if command in ('build', 'release:check'):
+    if command == 'release:check' and os.environ['FAIL_BUILD'] == '1':
+        sys.exit(23)
+    pathlib.Path('dist/control-ui').mkdir(parents=True, exist_ok=True)
+    pathlib.Path('dist/control-ui/index.html').write_text('built')
+if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui/index.html').exists():
+    sys.exit(24)
+''')
+                pnpm.chmod(0o755)
+                git = root / 'git'
+                git.write_text('#!/bin/sh\nif [ "$1" = rev-parse ]; then printf "%040d\\n" 1; fi\n')
+                git.chmod(0o755)
+                result_code = 0
+                for step in steps:
+                    self.assertIn("if: ${{ inputs.resume_notarization_run_id == '' }}", step)
+                    if resume:
+                        continue
+                    run = step.split('        run: ', 1)[1]
+                    script = ('\n'.join(line[10:] for line in run.splitlines()[1:])
+                              if run.startswith('|\n') else run.splitlines()[0])
+                    heap = re.search(r'NODE_OPTIONS: (.+)', step)
+                    result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True,
+                                            env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                                     NODE_OPTIONS=heap.group(1) if heap else '',
+                                                     FAIL_BUILD='1' if fail else '0', RELEASE_TAG='v2026.8.2',
+                                                     PUBLIC_RELEASE_BRANCH='release/2026.8.2', RUNNER_TEMP=td,
+                                                     ALLOW_LATE_CALVER_RECOVERY='false'))
+                    result_code = result.returncode
+                    if result_code:
+                        break
+                calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()] if (root / 'calls').exists() else []
+                self.assertEqual([call['command'] for call in calls], expected)
+                self.assertEqual(result_code, 23 if fail else 0)
+                if calls:
+                    self.assertEqual(calls[0]['heap'], '--max-old-space-size=8192')
+
     def test_appcast_retention_and_promotion_reject_stale_or_mismatched_artifacts(self):
         build, promote = workflow('openclaw-macos-publish.yml').split('  promote_release_artifacts:', 1)
         cases = [({}, True), ({'version': '2026.8.1'}, False),
@@ -112,8 +162,8 @@ class MacOSWorkflowTests(unittest.TestCase):
                 self.assertEqual(json.loads(result.stdout), expected)
         # Job scheduling is itself the contract: a resume must never install or compile.
         for name in ['Checkout submodules (retry)', 'Setup pnpm', 'Install dependencies',
-                     'Cache SwiftPM', 'Release packaging guards', 'Build',
-                     'Build Control UI if missing', 'Validate release tag and package metadata', 'Verify release contents']:
+                     'Cache SwiftPM', 'Release packaging guards', 'Build and verify release contents',
+                     'Validate release tag and package metadata']:
             step = publish.split(f'      - name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
             self.assertIn("if: ${{ inputs.resume_notarization_run_id == '' }}", step)
         self.assertIn('environment: mac-release', publish.split('  build_sign_and_package:', 1)[1])
