@@ -1,11 +1,13 @@
 """Exercise macOS release workflow failure propagation without Apple services."""
 import json
 import os
+import plistlib
 from pathlib import Path
 import re
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,6 +23,40 @@ def step_script(source, name):
 
 
 class MacOSWorkflowTests(unittest.TestCase):
+    def test_appcast_retention_and_promotion_reject_stale_or_mismatched_artifacts(self):
+        build, promote = workflow('openclaw-macos-publish.yml').split('  promote_release_artifacts:', 1)
+        cases = [({}, True), ({'version': '2026.8.1'}, False),
+                 ({'build': '202608010'}, False), ({'url_tag': 'v2026.8.1'}, False),
+                 ({'length': '1'}, False), ({'signature': ''}, False),
+                 ({'bundle_version': '2026.8.1'}, False)]
+        for stage, source, directory in [('retention', build, 'source'), ('promotion', promote, 'promoted-appcast')]:
+            script = step_script(source, 'Resolve appcast path')
+            for changes, accepted in cases:
+                with self.subTest(stage=stage, changes=changes), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    (root / directory).mkdir()
+                    (root / 'release-tools').symlink_to(ROOT, target_is_directory=True)
+                    package = root / 'OpenClaw-2026.8.2.zip'
+                    values = dict(version='2026.8.2', build='202608020', url_tag='v2026.8.2',
+                                  signature='fixture-signature', bundle_version='2026.8.2') | changes
+                    with zipfile.ZipFile(package, 'w') as archive:
+                        archive.writestr('OpenClaw.app/Contents/Info.plist', plistlib.dumps({
+                            'CFBundleShortVersionString': values['bundle_version'], 'CFBundleVersion': '202608020'}))
+                    length = values.get('length', str(package.stat().st_size))
+                    (root / directory / 'appcast.xml').write_text(f'''<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>
+                        <sparkle:shortVersionString>{values['version']}</sparkle:shortVersionString>
+                        <sparkle:version>{values['build']}</sparkle:version>
+                        <enclosure url="https://github.com/openclaw/openclaw/releases/download/{values['url_tag']}/{package.name}"
+                          length="{length}" sparkle:edSignature="{values['signature']}"/>
+                        </item></channel></rss>''')
+                    result = subprocess.run(['bash', '-c', script], cwd=root,
+                                            env=dict(os.environ, RELEASE_TAG='v2026.8.2',
+                                                     OPENCLAW_REPOSITORY='openclaw/openclaw', ZIP_PATH=str(package),
+                                                     GITHUB_OUTPUT=str(root / 'output')),
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                    self.assertEqual((root / 'output').exists(), accepted)
+
     def test_notarization_recovery_requires_main_signed_preflight_and_exact_attempt(self):
         script = step_script(workflow('openclaw-macos-publish.yml'), 'Validate notarization recovery inputs')
         valid = dict(RESUME_RUN_ID='123', RESUME_RUN_ATTEMPT='2', PREFLIGHT_ONLY='true',

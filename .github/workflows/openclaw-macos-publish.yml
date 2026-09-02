@@ -169,6 +169,12 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Checkout release verification tools
+        uses: actions/checkout@v7
+        with:
+          path: release-tools
+          persist-credentials: false
+
       - name: Clone selected public source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -698,6 +704,9 @@ jobs:
       - name: Resolve appcast path
         id: appcast_path
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          ZIP_PATH: ${{ steps.packaged_files.outputs.zip }}
         run: |
           set -euo pipefail
           APPCAST_PATH="source/appcast.xml"
@@ -705,6 +714,8 @@ jobs:
             echo "Stable appcast artifact not found." >&2
             exit 1
           fi
+          python3 release-tools/scripts/verify-macos-appcast.py "$APPCAST_PATH" "$ZIP_PATH" \
+            "$RELEASE_TAG" "$OPENCLAW_REPOSITORY"
           echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Resolve packaged version
@@ -795,6 +806,12 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Checkout release verification tools
+        uses: actions/checkout@v7
+        with:
+          path: release-tools
+          persist-credentials: false
+
       - name: Ensure matching public GitHub release exists
         env:
           GH_TOKEN: ${{ github.token }}
@@ -978,6 +995,9 @@ jobs:
       - name: Resolve appcast path
         id: appcast_path
         if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          ZIP_PATH: ${{ steps.packaged_files.outputs.zip }}
         run: |
           set -euo pipefail
           APPCAST_PATH="$(find promoted-appcast -type f -name 'appcast.xml' -print | sort | tail -n 1)"
@@ -985,6 +1005,8 @@ jobs:
             echo "Stable appcast artifact not found." >&2
             exit 1
           fi
+          python3 release-tools/scripts/verify-macos-appcast.py "$APPCAST_PATH" "$ZIP_PATH" \
+            "$RELEASE_TAG" "$OPENCLAW_REPOSITORY"
           echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Resolve packaged version
