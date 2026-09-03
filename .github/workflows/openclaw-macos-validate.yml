@@ -82,10 +82,36 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: source/package.json
+          run_install: false
+
       - name: Setup Node.js for native test isolation
         uses: actions/setup-node@v7
         with:
           node-version: "24.20.0"
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: source
+        env:
+          CI: "true"
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Apple Mermaid assets
+        working-directory: source
+        run: |
+          set -euo pipefail
+          # Mirrors product CI: OpenClawChatUI bundles generated Mermaid resources
+          # (scripts/prepare-apple-mermaid.mjs) that SwiftPM copies at build time.
+          if [[ -f scripts/prepare-apple-mermaid.mjs ]]; then
+            node scripts/prepare-apple-mermaid.mjs
+          else
+            echo "Source predates bundled Mermaid assets; nothing to prepare."
+          fi
 
       - name: Cache SwiftPM
         uses: actions/cache@v6
