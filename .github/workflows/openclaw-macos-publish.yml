@@ -235,6 +235,19 @@ jobs:
           CI: "true"
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare Apple Mermaid assets
+        if: ${{ inputs.resume_notarization_run_id == '' }}
+        working-directory: source
+        run: |
+          set -euo pipefail
+          # Mirrors product CI: OpenClawChatUI bundles generated Mermaid resources
+          # (scripts/prepare-apple-mermaid.mjs) that SwiftPM copies at build time.
+          if [[ -f scripts/prepare-apple-mermaid.mjs ]]; then
+            node scripts/prepare-apple-mermaid.mjs
+          else
+            echo "Source predates bundled Mermaid assets; nothing to prepare."
+          fi
+
       - name: Select release toolchain
         run: |
           sudo xcode-select -s /Applications/Xcode_26.6.app
