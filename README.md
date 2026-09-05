@@ -62,7 +62,7 @@ gh workflow run openclaw-macos-publish.yml --repo openclaw/releases --ref main \
   -f public_release_branch=release/YYYY.M.PATCH
 ```
 
-Recovery still requires `mac-release` approval. It verifies the producer,
+Recovery uses the same release authorization and `mac-release` environment. It verifies the producer,
 release/source binding, checkpoint hashes and signing identity, then resumes
 Apple submissions without rebuilding the app. An existing signed DMG is reused;
 if the failure preceded DMG creation, packaging creates and signs it after the
@@ -85,19 +85,23 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 
 ## Release Approval
 
-The `mac-release` environment is the macOS equivalent of the public repo's
-`npm-release` environment:
+An explicit request to release OpenClaw authorizes the macOS release through
+validation, signing, notarization, and promotion. Do not ask for a separate
+macOS approval after the release has already been authorized.
 
 - real macOS preflight and promotion jobs must use `mac-release`
-- `mac-release` requires approval from `openclaw-release-managers`
-- real publish runs must be dispatched from this repo's `main` branch
-- read-only maintainers can inspect the run; dispatch and approval stay with
-  the configured release-manager reviewers, matching npm release policy
+- `mac-release` has no required reviewers or wait timer; the authorized
+  operator dispatches the release workflows
+- the environment permits deployments only from this repo's `main` branch
+- successful validation and signed preflight artifacts for the exact tag and
+  source remain required before promotion
+- read-only maintainers can inspect runs; repository permissions control who
+  can dispatch them
 
-Keep the environment's required-reviewer rule, enabled self-review prevention,
-main-branch policy, and disabled administrator bypass aligned with the macOS
-release policy. Do not move signing or promotion secrets into repository-level
-secrets.
+Keep signing and promotion secrets in `mac-release`, with its main-only branch
+policy intact. Do not approve a job on someone else's behalf or use an alternate
+signing path to bypass an enforced rule. Organization owners manage the
+environment policy; changes to that policy require explicit owner direction.
 
 ## Release Evidence
 
