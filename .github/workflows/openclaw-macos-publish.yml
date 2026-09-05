@@ -162,8 +162,8 @@ jobs:
     needs: prepare
     if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
     runs-on: macos-26
-    # Match npm-release: signing and notarization stay behind the mac-release
-    # environment's required release-manager approval gate.
+    # Release authorization covers signing and notarization; mac-release owns
+    # the secrets and main-only deployment policy without a second approval.
     environment: mac-release
     permissions:
       actions: read
