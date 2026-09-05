@@ -123,6 +123,11 @@ release artifacts.
 
 Both evidence workflows publish with checkout-managed ephemeral `GITHUB_TOKEN`
 credentials and `contents:write`; they do not require a persistent push PAT.
+Both writers run from `main`, share a per-release concurrency group, and verify
+that the complete generated evidence directory is byte-identical on `origin/main`.
+Unrelated concurrent commits can be rebased; changes within the same evidence
+directory fail with a request to regenerate from current main. Even an unchanged
+local record is checked against fresh remote state before reporting success.
 Evidence commits do not trigger push-triggered Actions workflows. Auth repair
 verification must use a new, clearly labeled verification record because
 regenerating an existing release ID overwrites its stored evidence.

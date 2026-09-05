@@ -31,7 +31,7 @@ on:
       - openclaw_full_release_validation_completed
 
 concurrency:
-  group: openclaw-release-evidence-from-full-validation-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_id || inputs.release_id }}
+  group: openclaw-release-evidence-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_id || inputs.release_id }}
   cancel-in-progress: false
 
 env:
@@ -45,6 +45,7 @@ env:
 
 jobs:
   write_evidence:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -54,6 +55,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: main
           persist-credentials: true
 
       - name: Setup Node.js
@@ -90,24 +92,4 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit evidence to main
-        run: |
-          set -euo pipefail
-          evidence_path="evidence/${RELEASE_ID}"
-          git config user.name "openclaw-release-bot"
-          git config user.email "release-bot@openclaw.ai"
-          git add "${evidence_path}"
-          if git diff --cached --quiet; then
-            echo "No evidence changes to commit."
-            exit 0
-          fi
-          git commit -m "Evidence: record ${RELEASE_ID}"
-          for attempt in 1 2 3 4 5; do
-            git fetch origin main
-            if git rebase origin/main && git push origin HEAD:main; then
-              exit 0
-            fi
-            git rebase --abort || true
-            sleep $((attempt * 5))
-          done
-          echo "::error::Could not push evidence to main after retries."
-          exit 1
+        run: bash scripts/publish-release-evidence.sh
