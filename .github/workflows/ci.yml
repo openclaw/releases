@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            pnpm: "10.33.0"
+          - os: macos-26
+            pnpm: "12.1.0"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Prepare package-manager fixture
+        env:
+          PNPM_VERSION: ${{ matrix.pnpm }}
+        run: |
+          mkdir -p .git/action-proof/source
+          printf '{"private":true,"packageManager":"pnpm@%s"}\n' "$PNPM_VERSION" > .git/action-proof/source/package.json
+
+      - name: Setup pnpm from source manifest
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: .git/action-proof/source/package.json
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.20.0"
+
+      - name: Check scripts
+        run: |
+          node --check scripts/openclaw-release-evidence.mjs
+          node --check scripts/openclaw-release-evidence-from-full-validation.mjs
+
+      - name: Run workflow regression tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Exercise selected package manager
+        working-directory: .git/action-proof/source
+        env:
+          PNPM_VERSION: ${{ matrix.pnpm }}
+        run: |
+          node --version
+          pnpm --version
+          test "$(pnpm --version)" = "$PNPM_VERSION"
+          pnpm install --lockfile-only
+          pnpm install --frozen-lockfile
+          pnpm store path
+
+      - name: Prepare action round-trip proof
+        run: |
+          mkdir -p "$RUNNER_TEMP/action-proof"
+          printf 'release action round-trip proof\n' > "$RUNNER_TEMP/action-proof/proof.txt"
+
+      - name: Save proof cache
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/action-proof
+          key: release-ci-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Remove local cache input
+        run: rm "$RUNNER_TEMP/action-proof/proof.txt"
+
+      - name: Restore proof cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/action-proof
+          key: release-ci-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+
+      - name: Upload restored proof
+        uses: actions/upload-artifact@v7
+        with:
+          name: action-proof-${{ runner.os }}
+          path: ${{ runner.temp }}/action-proof/proof.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Download proof
+        uses: actions/download-artifact@v8
+        with:
+          name: action-proof-${{ runner.os }}
+          path: ${{ runner.temp }}/action-proof-downloaded
+
+      - name: Verify round-trip content
+        run: |
+          printf 'release action round-trip proof\n' | diff - "$RUNNER_TEMP/action-proof-downloaded/proof.txt"
+          echo "Cache and artifact round trips passed."

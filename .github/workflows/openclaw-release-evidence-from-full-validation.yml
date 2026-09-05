@@ -12,12 +12,14 @@ on:
         required: true
         type: string
       release_ref:
-        description: Exact public OpenClaw release ref, tag, or SHA
-        required: true
+        description: Optional public OpenClaw release ref, tag, branch, or SHA
+        required: false
+        default: ""
         type: string
       package_spec:
-        description: Exact package spec covered by this evidence, for example openclaw@2026.4.27-beta.1
-        required: true
+        description: Optional package spec covered by this evidence, for example openclaw@2026.4.27-beta.1
+        required: false
+        default: ""
         type: string
       notes:
         description: Optional release-manager notes to append to the evidence markdown
@@ -44,21 +46,20 @@ env:
 jobs:
   write_evidence:
     if: github.ref == 'refs/heads/main'
-    environment: release-evidence
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
     steps:
       - name: Checkout release repo
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: main
-          token: ${{ github.token }}
+          persist-credentials: true
 
       - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38  # v6.5.0
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -70,7 +71,7 @@ jobs:
 
       - name: Generate release evidence
         env:
-          GH_TOKEN: ${{ secrets.OPENCLAW_RELEASES_PRIVATE_PUSH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node scripts/openclaw-release-evidence-from-full-validation.mjs \
@@ -91,64 +92,4 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit evidence to main
-        run: |
-          set -euo pipefail
-          evidence_path="evidence/${RELEASE_ID}"
-          node scripts/openclaw-release-evidence-contract.mjs verify-evidence \
-            "${evidence_path}/release-evidence.json" "$RELEASE_ID" "$RELEASE_REF" "$PACKAGE_SPEC" \
-            --require-full-validation
-          git config user.name "openclaw-release-bot"
-          git config user.email "release-bot@openclaw.ai"
-          git add "${evidence_path}"
-          generated_tree="$(git write-tree)"
-          expected_tree="$(git rev-parse "${generated_tree}:${evidence_path}")"
-          changed=0
-          if git diff --cached --quiet; then
-            echo "No evidence changes to commit."
-          else
-            git commit -m "Evidence: record ${RELEASE_ID}"
-            changed=1
-          fi
-
-          if [[ "$changed" == "1" ]]; then
-            pushed=0
-            for attempt in 1 2 3 4 5; do
-              git fetch origin main
-              if git rebase origin/main; then
-                if [[ "$(git rev-parse "HEAD:${evidence_path}")" != "$expected_tree" ]]; then
-                  echo "::error::Rebase changed the generated evidence directory."
-                  exit 1
-                fi
-                if git push origin HEAD:main; then
-                  pushed=1
-                  break
-                fi
-              fi
-              git rebase --abort || true
-              sleep $((attempt * 5))
-            done
-            if [[ "$pushed" != "1" ]]; then
-              echo "::error::Could not push evidence to main after retries."
-              exit 1
-            fi
-          fi
-
-          git fetch origin main
-          git merge-base --is-ancestor HEAD origin/main || {
-            echo "::error::Published evidence commit is not reachable from origin/main."
-            exit 1
-          }
-          remote_tree="$(git rev-parse "origin/main:${evidence_path}")"
-          if [[ "$expected_tree" != "$remote_tree" ]]; then
-            echo "::error::Remote evidence directory differs from the generated files."
-            exit 1
-          fi
-          remote_json="$RUNNER_TEMP/openclaw-release-evidence/remote-release-evidence.json"
-          git show "origin/main:${evidence_path}/release-evidence.json" > "$remote_json"
-          cmp "${evidence_path}/release-evidence.json" "$remote_json" || {
-            echo "::error::Remote evidence bytes differ from the generated JSON."
-            exit 1
-          }
-          node scripts/openclaw-release-evidence-contract.mjs verify-evidence \
-            "$remote_json" "$RELEASE_ID" "$RELEASE_REF" "$PACKAGE_SPEC" \
-            --require-full-validation
+        run: bash scripts/publish-release-evidence.sh

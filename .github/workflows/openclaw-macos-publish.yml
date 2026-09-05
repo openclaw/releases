@@ -29,6 +29,14 @@ on:
         description: Existing successful mac validate workflow run id to prove the required swift test gate passed for this tag
         required: false
         type: string
+      resume_notarization_run_id:
+        description: Failed signed preflight run containing a notarization recovery checkpoint; resumes without compiling the app again
+        required: false
+        type: string
+      resume_notarization_run_attempt:
+        description: Exact attempt of the failed preflight that uploaded the recovery checkpoint
+        required: false
+        type: string
       allow_late_calver_recovery:
         description: Allow mac-only recovery after the npm CalVer freshness window, while still verifying the published npm package exists
         required: true
@@ -46,8 +54,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  NODE_VERSION: "24.x"
-  PNPM_VERSION: "10.23.0"
+  NODE_VERSION: "24.20.0"
   OPENCLAW_REPOSITORY: openclaw/openclaw
   EXPECTED_DEVELOPER_IDENTITY: "Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)"
   EXPECTED_DEVELOPER_TEAM_ID: FWJYW4S8P8
@@ -61,6 +68,27 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Validate notarization recovery inputs
+        env:
+          RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
+          RESUME_RUN_ATTEMPT: ${{ inputs.resume_notarization_run_attempt }}
+          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+          SMOKE_TEST_ONLY: ${{ inputs.smoke_test_only }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RESUME_RUN_ID" && -z "$RESUME_RUN_ATTEMPT" ]]; then
+            exit 0
+          fi
+          if [[ ! "$RESUME_RUN_ID" =~ ^[1-9][0-9]*$ || ! "$RESUME_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Recovery requires a positive run id and exact run attempt." >&2
+            exit 1
+          fi
+          if [[ "$PREFLIGHT_ONLY" != true || "$SMOKE_TEST_ONLY" != false || "$WORKFLOW_REF" != refs/heads/main ]]; then
+            echo "Notarization recovery requires a signed preflight dispatched from main." >&2
+            exit 1
+          fi
+
       - name: Validate tag input format
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -133,14 +161,20 @@ jobs:
   build_sign_and_package:
     needs: prepare
     if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
-    runs-on: macos-15
-    # Match npm-release: signing and notarization stay behind the mac-release
-    # environment's required release-manager approval gate.
+    runs-on: macos-26
+    # Release authorization covers signing and notarization; mac-release owns
+    # the secrets and main-only deployment policy without a second approval.
     environment: mac-release
     permissions:
       actions: read
       contents: read
     steps:
+      - name: Checkout release verification tools
+        uses: actions/checkout@v7
+        with:
+          path: release-tools
+          persist-credentials: false
+
       - name: Clone selected public source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -148,6 +182,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone https://github.com/openclaw/openclaw.git source
+          git -C source rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}" >/dev/null
           if [[ -z "${SOURCE_REF}" ]]; then
             git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
             exit 0
@@ -165,6 +200,7 @@ jobs:
           git -C source checkout --detach "refs/remotes/origin/${SOURCE_REF}"
 
       - name: Checkout submodules (retry)
+        if: ${{ inputs.resume_notarization_run_id == '' }}
         working-directory: source
         run: |
           set -euo pipefail
@@ -179,43 +215,53 @@ jobs:
           exit 1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        if: ${{ inputs.resume_notarization_run_id == '' }}
+        uses: pnpm/action-setup@v6
         with:
-          version: ${{ env.PNPM_VERSION }}
+          package_json_file: source/package.json
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+          cache: ${{ inputs.resume_notarization_run_id == '' && 'pnpm' || '' }}
           cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install dependencies
+        if: ${{ inputs.resume_notarization_run_id == '' }}
         working-directory: source
         env:
           CI: "true"
         run: pnpm install --frozen-lockfile
 
-      - name: Select Xcode 26.1
+      - name: Prepare Apple Mermaid assets
+        if: ${{ inputs.resume_notarization_run_id == '' }}
+        working-directory: source
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.1.app
+          set -euo pipefail
+          # Mirrors product CI: OpenClawChatUI bundles generated Mermaid resources
+          # (scripts/prepare-apple-mermaid.mjs) that SwiftPM copies at build time.
+          if [[ -f scripts/prepare-apple-mermaid.mjs ]]; then
+            node scripts/prepare-apple-mermaid.mjs
+          else
+            echo "Source predates bundled Mermaid assets; nothing to prepare."
+          fi
+
+      - name: Select release toolchain
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.6.app
           xcodebuild -version
           swift --version
 
       - name: Cache SwiftPM
-        uses: actions/cache@v5
+        if: ${{ inputs.resume_notarization_run_id == '' }}
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/org.swift.swiftpm
           key: ${{ runner.os }}-swiftpm-release-${{ hashFiles('source/apps/macos/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-swiftpm-release-
-
-      - name: Ensure matching public GitHub release exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
 
       - name: Resolve package version
         id: package_version
@@ -237,7 +283,87 @@ jobs:
             echo "is_beta=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify notarization checkpoint producer
+        if: ${{ inputs.resume_notarization_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
+          RESUME_RUN_ATTEMPT: ${{ inputs.resume_notarization_run_attempt }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RESUME_RUN_ID}/attempts/${RESUME_RUN_ATTEMPT}" > "$RUNNER_TEMP/notarization-producer.json"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const run = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/notarization-producer.json`, 'utf8'));
+          const expected = {
+            id: Number(process.env.RESUME_RUN_ID), run_attempt: Number(process.env.RESUME_RUN_ATTEMPT),
+            path: '.github/workflows/openclaw-macos-publish.yml', head_branch: 'main',
+            event: 'workflow_dispatch', status: 'completed',
+          };
+          for (const [key, value] of Object.entries(expected)) {
+            if (run[key] !== value) throw new Error(`Recovery producer ${key} must equal ${value}`);
+          }
+          if (run.repository?.full_name !== process.env.GITHUB_REPOSITORY ||
+              !['failure', 'cancelled'].includes(run.conclusion) || !/^[a-f0-9]{40}$/.test(run.head_sha)) {
+            throw new Error('Recovery requires a failed or cancelled signed preflight in this repository');
+          }
+          NODE
+
+      - name: Download notarization checkpoint
+        if: ${{ inputs.resume_notarization_run_id != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-notarization-${{ inputs.tag }}-${{ inputs.resume_notarization_run_id }}-${{ inputs.resume_notarization_run_attempt }}
+          path: source/dist/macos-notarization-recovery
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.resume_notarization_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify notarization checkpoint release binding
+        id: recovery_verified
+        if: ${{ inputs.resume_notarization_run_id != '' }}
+        working-directory: source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLIC_RELEASE_BRANCH: ${{ inputs.public_release_branch }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/lib/mac-notarization-recovery.py ]] || ! grep -Fq -- '--resume-notarization' scripts/package-mac-dist.sh; then
+            echo "Selected source does not support notarization recovery. Refusing to rebuild; use source containing the recovery interface." >&2
+            exit 1
+          fi
+          if [[ "$PUBLIC_RELEASE_BRANCH" != main && ! "$PUBLIC_RELEASE_BRANCH" =~ ^release/[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
+            echo "Invalid public release branch." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "+refs/heads/${PUBLIC_RELEASE_BRANCH}:refs/remotes/origin/${PUBLIC_RELEASE_BRANCH}"
+          git merge-base --is-ancestor "refs/tags/${RELEASE_TAG}^{commit}" HEAD
+          git merge-base --is-ancestor HEAD "refs/remotes/origin/${PUBLIC_RELEASE_BRANCH}"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const root = 'dist/macos-notarization-recovery';
+          const envelope = JSON.parse(fs.readFileSync(`${root}/workflow-release.json`, 'utf8'));
+          const manifest = JSON.parse(fs.readFileSync(`${root}/manifest.json`, 'utf8'));
+          const producer = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/notarization-producer.json`, 'utf8'));
+          const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+          const expected = { releaseTag: process.env.RELEASE_TAG, sourceSha, producerRunId: producer.id,
+            producerRunAttempt: producer.run_attempt, producerWorkflowSha: producer.head_sha,
+            preflightOnly: true, smokeTestOnly: false };
+          for (const [key, value] of Object.entries(expected)) {
+            if (envelope[key] !== value) throw new Error(`Recovery checkpoint ${key} mismatch`);
+          }
+          if (manifest.schemaVersion !== 1 || manifest.sourceSha !== sourceSha || manifest.version !== version ||
+              manifest.skipDmg !== false || manifest.skipDsym !== false) {
+            throw new Error('Recovery checkpoint source, version or release packaging flags mismatch');
+          }
+          NODE
+          python3 scripts/lib/mac-notarization-recovery.py verify dist/macos-notarization-recovery \
+            "$(git rev-parse HEAD)" "$(node -p "require('./package.json').version")" >/dev/null
+
       - name: Release packaging guards
+        if: ${{ inputs.resume_notarization_run_id == '' }}
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=4096
@@ -247,23 +373,16 @@ jobs:
           pnpm check:changelog-attributions
           pnpm check:host-env-policy:swift
 
-      - name: Build
+      - name: Build and verify release contents
+        if: ${{ inputs.resume_notarization_run_id == '' }}
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=8192
-        run: pnpm build
-
-      - name: Build Control UI if missing
-        working-directory: source
-        run: |
-          set -euo pipefail
-          if [[ -f dist/control-ui/index.html ]]; then
-            echo "Control UI was already built by pnpm build; skipping."
-            exit 0
-          fi
-          node scripts/ui.js build
+        # release:check owns the package build, including Control UI assets.
+        run: pnpm release:check
 
       - name: Validate release tag and package metadata
+        if: ${{ inputs.resume_notarization_run_id == '' }}
         working-directory: source
         env:
           ALLOW_LATE_CALVER_RECOVERY: ${{ inputs.allow_late_calver_recovery }}
@@ -298,12 +417,6 @@ jobs:
             }
           '
           echo "::warning::Allowing late mac-only recovery for ${RELEASE_TAG}; published npm metadata for openclaw@${package_version} is present."
-
-      - name: Verify release contents
-        working-directory: source
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-        run: pnpm release:check
 
       - name: Capture release provenance
         id: release_provenance
@@ -412,6 +525,7 @@ jobs:
           echo "SPARKLE_PRIVATE_KEY_FILE=$SPARKLE_PRIVATE_KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Build, sign, notarize, and package macOS release
+        id: package_release
         if: ${{ !inputs.smoke_test_only }}
         working-directory: source
         env:
@@ -423,7 +537,81 @@ jobs:
           SKIP_TSC: "1"
           SKIP_UI_BUILD: "1"
           SPARKLE_FEED_URL: ${{ env.SPARKLE_FEED_URL }}
-        run: scripts/package-mac-dist.sh
+          RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RESUME_RUN_ID" ]]; then
+            scripts/package-mac-dist.sh --resume-notarization
+          else
+            scripts/package-mac-dist.sh
+          fi
+
+      - name: Preserve notarization recovery checkpoint
+        id: recovery_checkpoint
+        if: ${{ always() && !inputs.smoke_test_only && steps.package_release.outcome != 'skipped' && (inputs.resume_notarization_run_id == '' || steps.recovery_verified.outcome == 'success') && hashFiles('source/dist/macos-notarization-recovery/manifest.json') != '' }}
+        working-directory: source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          checkpoint=dist/macos-notarization-recovery
+          python3 scripts/lib/mac-notarization-recovery.py verify "$checkpoint" \
+            "$(git rev-parse HEAD)" "$(node -p "require('./package.json').version")" >/dev/null
+          if [[ ! -f "$checkpoint/sparkle-tools.zip" ]]; then
+            tool=""
+            # Prefer the producer host's artifact, matching make_appcast.sh.
+            # Follow SwiftPM's build/cache links when collecting the full tool bundle.
+            for build_root in "apps/macos/.build/$(uname -m)" apps/macos/.build; do
+              if [[ -d "$build_root" ]]; then
+                tool="$(find -L "$build_root" -type f -path '*/artifacts/sparkle/Sparkle/bin/generate_appcast' -print -quit)"
+                [[ -z "$tool" ]] || break
+              fi
+            done
+            [[ -n "$tool" ]] || { echo "Missing producer Sparkle tools for recovery." >&2; exit 1; }
+            ditto -c -k --sequesterRsrc --keepParent "$(dirname "$(dirname "$tool")")" "$checkpoint/sparkle-tools.zip"
+          fi
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const data = { releaseTag: process.env.RELEASE_TAG,
+            sourceSha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+            producerRunId: Number(process.env.GITHUB_RUN_ID), producerRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            producerWorkflowSha: process.env.GITHUB_SHA, preflightOnly: true, smokeTestOnly: false };
+          fs.writeFileSync('dist/macos-notarization-recovery/workflow-release.json', `${JSON.stringify(data, null, 2)}\n`);
+          NODE
+          python3 scripts/lib/mac-notarization-recovery.py seal "$checkpoint"
+
+      - name: Upload notarization recovery checkpoint
+        if: ${{ always() && steps.recovery_checkpoint.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-notarization-${{ inputs.tag }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: source/dist/macos-notarization-recovery
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Restore checkpointed Sparkle tools
+        if: ${{ inputs.resume_notarization_run_id != '' }}
+        working-directory: source
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import posixpath, stat, zipfile
+          with zipfile.ZipFile('dist/macos-notarization-recovery/sparkle-tools.zip') as archive:
+              for member in archive.infolist():
+                  name = member.filename
+                  if name.startswith('/') or '..' in name.split('/') or not name.startswith(('Sparkle/', '__MACOSX/')):
+                      raise ValueError('Unexpected Sparkle archive path')
+                  if stat.S_ISLNK(member.external_attr >> 16):
+                      target = archive.read(member).decode()
+                      resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+                      if target.startswith('/') or not resolved.startswith('Sparkle/'):
+                          raise ValueError('Sparkle archive symlink escapes root')
+          PY
+          ditto -x -k dist/macos-notarization-recovery/sparkle-tools.zip "$RUNNER_TEMP/recovery-sparkle"
+          tool="$RUNNER_TEMP/recovery-sparkle/Sparkle/bin/generate_appcast"
+          [[ -x "$tool" ]] || { echo "Recovered Sparkle generator is missing." >&2; exit 1; }
+          echo "SPARKLE_GENERATE_APPCAST=$tool" >> "$GITHUB_ENV"
 
       - name: Verify packaged OpenClaw signing identity
         if: ${{ !inputs.smoke_test_only }}
@@ -512,6 +700,9 @@ jobs:
       - name: Resolve appcast path
         id: appcast_path
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          ZIP_PATH: ${{ steps.packaged_files.outputs.zip }}
         run: |
           set -euo pipefail
           APPCAST_PATH="source/appcast.xml"
@@ -519,6 +710,8 @@ jobs:
             echo "Stable appcast artifact not found." >&2
             exit 1
           fi
+          python3 release-tools/scripts/verify-macos-appcast.py "$APPCAST_PATH" "$ZIP_PATH" \
+            "$RELEASE_TAG" "$OPENCLAW_REPOSITORY"
           echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Resolve packaged version
@@ -609,6 +802,12 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Checkout release verification tools
+        uses: actions/checkout@v7
+        with:
+          path: release-tools
+          persist-credentials: false
+
       - name: Ensure matching public GitHub release exists
         env:
           GH_TOKEN: ${{ github.token }}
@@ -792,6 +991,9 @@ jobs:
       - name: Resolve appcast path
         id: appcast_path
         if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          ZIP_PATH: ${{ steps.packaged_files.outputs.zip }}
         run: |
           set -euo pipefail
           APPCAST_PATH="$(find promoted-appcast -type f -name 'appcast.xml' -print | sort | tail -n 1)"
@@ -799,6 +1001,8 @@ jobs:
             echo "Stable appcast artifact not found." >&2
             exit 1
           fi
+          python3 release-tools/scripts/verify-macos-appcast.py "$APPCAST_PATH" "$ZIP_PATH" \
+            "$RELEASE_TAG" "$OPENCLAW_REPOSITORY"
           echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Resolve packaged version

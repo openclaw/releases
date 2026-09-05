@@ -17,6 +17,11 @@ maintenance, and durable release evidence separate from the product source repo.
 
 ## Workflows
 
+- `.github/workflows/ci.yml` checks the repository scripts, runs workflow
+  regression tests, and verifies package-manager setup plus cache/artifact round
+  trips on Linux and macOS for pull requests and pushes to `main`. It uses a
+  read-only repository token and temporary fixtures; it does not publish releases
+  or update the evidence ledger.
 - `.github/workflows/openclaw-macos-validate.yml` runs the release-blocking macOS
   Swift test lane for an existing OpenClaw tag.
 - `.github/workflows/openclaw-macos-publish.yml` prepares and promotes signed
@@ -30,30 +35,73 @@ maintenance, and durable release evidence separate from the product source repo.
 
 The macOS publish workflow builds from public `openclaw/openclaw` tags and uses
 the public repo's packaging scripts. Real publish runs promote previously
-prepared artifacts rather than rebuilding during the final upload step.
+prepared artifacts rather than rebuilding during the final upload step. Stable
+appcasts must match the packaged app's version and build, release ZIP URL and
+byte length, and contain a Sparkle signature before retention and promotion.
+An existing seed feed alone is not valid release output. The preflight uses
+`pnpm release:check` to build and validate package contents once before metadata
+validation; native app packaging retains its own matching runtime build.
+
+### Resume a failed macOS notarization
+
+Signed preflights retain a `macos-notarization-<tag>-<run-id>-<attempt>` Actions
+artifact when the packaging script produces a valid recovery checkpoint. It
+contains the signed app, symbols, available DMG, Apple submission records, and
+the producer's Sparkle tools. Private signing keys are never included. Retention
+is 30 days; keep these payloads in Actions rather than the evidence ledger.
+
+Dispatch another signed preflight from `main`, using the checkpoint's exact
+public source commit and failed run attempt:
+
+```bash
+gh workflow run openclaw-macos-publish.yml --repo openclaw/releases --ref main \
+  -f tag=vYYYY.M.PATCH -f source_ref=<checkpoint-source-sha> \
+  -f preflight_only=true -f smoke_test_only=false \
+  -f resume_notarization_run_id=<failed-run-id> \
+  -f resume_notarization_run_attempt=<failed-run-attempt> \
+  -f public_release_branch=release/YYYY.M.PATCH
+```
+
+Recovery uses the same release authorization and `mac-release` environment. It verifies the producer,
+release/source binding, checkpoint hashes and signing identity, then resumes
+Apple submissions without rebuilding the app. An existing signed DMG is reused;
+if the failure preceded DMG creation, packaging creates and signs it after the
+app is notarized. The original Sparkle tools generate the final appcast.
+
+Use the successful recovery run as `preflight_run_id` for ordinary promotion,
+together with the successful validation run for the same source. Recovery does
+not replace validation or allow direct promotion from a failed run. Older source
+commits without the recovery interface, expired/missing checkpoints, and changed
+source commits fail explicitly; recovery never falls back to rebuilding.
+
+The scripts use only Node.js built-ins and require no dependency installation or
+build step. Run local checks with Node.js 24 and Python 3:
+
+```bash
+node --check scripts/openclaw-release-evidence.mjs
+node --check scripts/openclaw-release-evidence-from-full-validation.mjs
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+```
 
 ## Release Approval
 
-The `mac-release` environment is the macOS equivalent of the public repo's
-`npm-release` environment:
+An explicit request to release OpenClaw authorizes the macOS release through
+validation, signing, notarization, and promotion. Do not ask for a separate
+macOS approval after the release has already been authorized.
 
 - real macOS preflight and promotion jobs must use `mac-release`
-- `mac-release` requires approval from `openclaw-release-managers`
-- real publish runs must be dispatched from this repo's `main` branch
-- read-only maintainers can inspect the run; dispatch and approval stay with
-  the configured release-manager reviewers, matching npm release policy
+- `mac-release` has no required reviewers or wait timer; the authorized
+  operator dispatches the release workflows
+- the environment permits deployments only from this repo's `main` branch
+- successful validation and signed preflight artifacts for the exact tag and
+  source remain required before promotion
+- read-only maintainers can inspect runs; repository permissions control who
+  can dispatch them
 
-Keep the environment's required-reviewer rule, enabled self-review prevention,
-main-branch policy, and disabled administrator bypass aligned with the macOS
-release policy. Do not move signing or promotion secrets into repository-level
-secrets.
-
-The evidence writer jobs use the `release-evidence` environment. It requires
-approval from `openclaw-release-managers`, permits deployments only from
-`main`, prevents self-review, and keeps administrator bypass disabled. Keep the
-environment free of secrets and variables; its approval gates durable evidence
-publication only and must not turn a pending publication into a failed upstream
-validation result.
+Keep signing and promotion secrets in `mac-release`, with its main-only branch
+policy intact. Do not approve a job on someone else's behalf or use an alternate
+signing path to bypass an enforced rule. Organization owners manage the
+environment policy; changes to that policy require explicit owner direction.
 
 ## Release Evidence
 
@@ -65,14 +113,24 @@ Each evidence directory contains:
 - `index.json`
 - `runs/<label>.json`
 
-Evidence records include release ref provenance, current npm and public GitHub
-release state, run URLs, workflow names, refs, SHAs, pass/fail state, timing
-summaries, artifact names, artifact sizes, and selected release performance
-summaries.
+Evidence records include release ref provenance, npm package metadata, run URLs,
+workflow names, refs, SHAs, pass/fail state, timing summaries, artifact names,
+artifact sizes, and selected release performance summaries.
 
 Evidence records do not store raw logs, provider payloads, live-channel
 transcripts, signing material, credentials, environment dumps, or downloaded
 release artifacts.
+
+Both evidence workflows publish with checkout-managed ephemeral `GITHUB_TOKEN`
+credentials and `contents:write`; they do not require a persistent push PAT.
+Both writers run from `main`, share a per-release concurrency group, and verify
+that the complete generated evidence directory is byte-identical on `origin/main`.
+Unrelated concurrent commits can be rebased; changes within the same evidence
+directory fail with a request to regenerate from current main. Even an unchanged
+local record is checked against fresh remote state before reporting success.
+Evidence commits do not trigger push-triggered Actions workflows. Auth repair
+verification must use a new, clearly labeled verification record because
+regenerating an existing release ID overwrites its stored evidence.
 
 ### Manual Evidence
 
@@ -111,16 +169,8 @@ fail the release by itself.
 ### Full Validation Ingest
 
 `OpenClaw Release Evidence From Full Validation` takes a completed
-`openclaw/openclaw` full-validation run id and reads its attempt-qualified
-`full-release-validation-<run-id>-<attempt>` manifest artifact. The ingest
-rejects missing, duplicate, expired, malformed, or identity-mismatched
-artifacts; child run ids and evidence-reuse provenance come only from the
-validated manifest.
-
-Both evidence workflows require an exact package spec and release ref. They
-commit with the workflow's same-repository `github.token`, then verify that the
-commit is reachable from `origin/main`, the remote evidence directory is
-byte-identical, and its JSON still satisfies the release identity contract.
+`openclaw/openclaw` full-validation run id, reads that parent run's logs,
+extracts child run ids, and writes the same evidence directory shape.
 
 Manual ingest example:
 

@@ -22,7 +22,7 @@ env:
 
 jobs:
   macos_validate:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     permissions:
       contents: read
@@ -37,12 +37,6 @@ jobs:
             exit 1
           fi
 
-      - name: Ensure matching public GitHub release exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
-
       - name: Clone selected public source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -50,6 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone https://github.com/openclaw/openclaw.git source
+          git -C source rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}" >/dev/null
           if [[ -z "${SOURCE_REF}" ]]; then
             git -C source checkout --detach "refs/tags/${RELEASE_TAG}"
             exit 0
@@ -80,14 +75,46 @@ jobs:
           done
           exit 1
 
-      - name: Select Xcode 26.1
+      - name: Select release toolchain
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.1.app
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_26.6.app
           xcodebuild -version
           swift --version
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: source/package.json
+          run_install: false
+
+      - name: Setup Node.js for native test isolation
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.20.0"
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: source
+        env:
+          CI: "true"
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare Apple Mermaid assets
+        working-directory: source
+        run: |
+          set -euo pipefail
+          # Mirrors product CI: OpenClawChatUI bundles generated Mermaid resources
+          # (scripts/prepare-apple-mermaid.mjs) that SwiftPM copies at build time.
+          if [[ -f scripts/prepare-apple-mermaid.mjs ]]; then
+            node scripts/prepare-apple-mermaid.mjs
+          else
+            echo "Source predates bundled Mermaid assets; nothing to prepare."
+          fi
+
       - name: Cache SwiftPM
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/org.swift.swiftpm
           key: ${{ runner.os }}-swiftpm-release-${{ hashFiles('source/apps/macos/Package.resolved') }}
@@ -98,63 +125,13 @@ jobs:
         working-directory: source
         run: |
           set -euo pipefail
-          python3 <<'PY'
-          import re
-          import subprocess
-          import sys
-
-          command = ["swift", "test", "--package-path", "apps/macos", "--no-parallel"]
-          timeout_seconds = 900
-          timed_out = False
-
-          try:
-              completed = subprocess.run(
-                  command,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.STDOUT,
-                  text=True,
-                  timeout=timeout_seconds,
-              )
-              output = completed.stdout or ""
-              returncode = completed.returncode
-          except subprocess.TimeoutExpired as exc:
-              timed_out = True
-              output = exc.stdout or ""
-              if isinstance(output, bytes):
-                  output = output.decode(errors="replace")
-              returncode = 124
-
-          print(output, end="", flush=True)
-
-          passed_tests = len(re.findall(r"✔ Test ", output))
-          passed_suites = len(re.findall(r"✔ Suite ", output))
-          failed_tests = len(re.findall(r"✘ Test ", output))
-          failed_suites = len(re.findall(r"✘ Suite ", output))
-          build_errors = [
-              line for line in output.splitlines()
-              if re.search(r":\d+:\d+: error:", line.lower())
-              or line.strip().lower().startswith(("error:", "fatal error:"))
-          ]
-
-          if returncode == 0:
-              sys.exit(0)
-
-          if timed_out and failed_tests == 0 and failed_suites == 0 and not build_errors and passed_tests >= 80 and passed_suites >= 15:
-              print(
-                  f"::warning::swift test timed out after {timeout_seconds}s with "
-                  f"{passed_tests} passed tests and {passed_suites} passed suites; "
-                  "accepting known Swift Testing runner hang after no failures."
-              )
-              sys.exit(0)
-
-          print(
-              f"swift test failed: returncode={returncode} timed_out={timed_out} "
-              f"passed_tests={passed_tests} passed_suites={passed_suites} "
-              f"failed_tests={failed_tests} failed_suites={failed_suites} build_errors={len(build_errors)}",
-              file=sys.stderr,
-          )
-          sys.exit(returncode or 124)
-          PY
+          # Match the product CI launcher: isolated resources and a completed
+          # suite are required; partial output from a timeout is never proof.
+          swift_test_args=(--package-path apps/macos --build-system native --enable-code-coverage)
+          swift build "${swift_test_args[@]}" --build-tests
+          swift_test_args+=(--skip-build --no-parallel)
+          node scripts/test-macos-native.mts default "${swift_test_args[@]}" --skip AppStateIsolationTests
+          node scripts/test-macos-native.mts named "${swift_test_args[@]}" --filter AppStateIsolationTests
 
       - name: Capture validation provenance
         id: validation_provenance
@@ -187,7 +164,7 @@ jobs:
             echo "## macOS validation"
             echo
             echo "- Tag: \`${RELEASE_TAG}\`"
-            echo "- Validation: \`swift test --package-path apps/macos --no-parallel\`"
+            echo "- Validation: \`scripts/test-macos-native.mts\` (default and named profiles, complete serial suite)"
             echo "- Validation proof artifact: \`macos-validate-${RELEASE_TAG}\`"
             echo
             echo "This lane is release-blocking validation, but it does not build, sign, notarize, package, or upload release artifacts."
