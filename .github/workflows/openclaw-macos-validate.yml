@@ -7,6 +7,10 @@ on:
         description: Existing OpenClaw release tag to validate on macOS (for example v2026.3.22 or v2026.3.22-beta.1)
         required: true
         type: string
+      pretag_source_sha:
+        description: Exact signed stable release branch head for artifact-only preparation before tagging; leave empty for normal tagged releases
+        required: false
+        type: string
       source_ref:
         description: Optional public openclaw/openclaw source ref to validate instead of the tag, for release-branch-only packaging fixes after npm/tag publication
         required: false
@@ -37,7 +41,28 @@ jobs:
             exit 1
           fi
 
+      - name: Checkout release verification tools
+        uses: actions/checkout@v7
+        with:
+          path: release-tools
+          persist-credentials: false
+
+      - name: Admit signed pretag source
+        if: ${{ inputs.pretag_source_sha != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRETAG_SOURCE_SHA: ${{ inputs.pretag_source_sha }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          WORKFLOW_REF: ${{ github.ref }}
+          PREFLIGHT_ONLY: "true"
+          SMOKE_TEST_ONLY: "false"
+        run: |
+          export PUBLIC_RELEASE_BRANCH="release/${RELEASE_TAG#v}"
+          python3 release-tools/scripts/checkout-macos-pretag.py
+
       - name: Clone selected public source
+        if: ${{ inputs.pretag_source_sha == '' }}
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           SOURCE_REF: ${{ inputs.source_ref }}
