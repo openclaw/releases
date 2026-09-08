@@ -42,6 +42,35 @@ An existing seed feed alone is not valid release output. The preflight uses
 `pnpm release:check` to build and validate package contents once before metadata
 validation; native app packaging retains its own matching runtime build.
 
+### Prepare signed macOS artifacts before tagging
+
+After freezing the final signed source commit on `release/YYYY.M.PATCH`, start
+signing/notarization and Swift validation concurrently from this repository's
+trusted `main`. Neither run creates a tag or publishes assets:
+
+```bash
+gh workflow run openclaw-macos-publish.yml --repo openclaw/releases --ref main \
+  -f tag=vYYYY.M.PATCH -f pretag_source_sha=<exact-signed-final-source-sha> \
+  -f preflight_only=true -f smoke_test_only=false \
+  -f public_release_branch=release/YYYY.M.PATCH
+gh workflow run openclaw-macos-validate.yml --repo openclaw/releases --ref main \
+  -f tag=vYYYY.M.PATCH -f pretag_source_sha=<exact-signed-final-source-sha>
+```
+
+Pretag preparation supports stable versions. It requires the exact canonical
+release branch head, valid GitHub commit signature verification, and matching
+package identity before checking out or executing public source. It rejects
+`source_ref`, smoke mode, notarization recovery, and publication. A tag created
+while the run queues must point at the same commit. Normal tagged recovery and
+promotion keep their existing provenance checks.
+
+The app embeds its real source SHA in signed metadata. A later CHANGELOG-only
+commit is therefore **not** equivalent for artifact promotion: finalize the
+changelog before starting, or rerun the producer to rebuild, sign, and notarize
+the new final source. Never relabel previously signed bytes. When the eventual
+tag selects the unchanged pretag SHA, use the successful preflight and validation
+run IDs in ordinary promotion after the public GitHub release exists.
+
 ### Resume a failed macOS notarization
 
 Signed preflights retain a `macos-notarization-<tag>-<run-id>-<attempt>` Actions
