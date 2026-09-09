@@ -131,10 +131,12 @@ class Probe:
                 "--argstr", "originalZip", str(self.directory / ZIP_NAME)]
         identity = json.loads(self.command("nix-identity", ["nix", "eval", "--json", *args,
                                                            "identity"]).read_text())
-        self.stage = "target-absent"
-        target = identity["outPath"]
+        self.stage = "identity-projection"
+        target = identity["recoveredOutPath"]
         assert re.fullmatch(r"/nix/store/[0-9a-z]{32}-[A-Za-z0-9+._?=-]+", target)
-        assert identity["originalOutPath"] == target and not os.path.lexists(target)
+        assert identity["originalOutPath"] == target
+        self.stage = "target-absent"
+        assert not os.path.lexists(target)
         print(json.dumps({"nix": version, "targetAbsent": True, "identity": identity}))
         result = self.command("nix-build", [
             "nix", "build", "--no-link", "--print-out-paths", "--print-build-logs",
