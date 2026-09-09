@@ -291,7 +291,11 @@ class Probe:
             self.forward_fixture(error.returncode)
             raise
         self.stage = "qualifier-result"
-        passed = "PASS installed-upgrade Node22 -> Node24 -> rollback; cleanup verified" in result.read_text()
+        with result.open("rb") as lines:
+            passed = any(
+                b"PASS installed-upgrade Node22 -> Node24 -> rollback; cleanup verified" in line
+                for line in lines
+            )
         completed = self.forward_fixture(0 if passed else 1)
         assert passed and completed
         print(json.dumps({"result": "PASS", "scope": "installed-upgrade-rollback",
@@ -299,27 +303,27 @@ class Probe:
                           "trackB": "DEFERRED: source patch applicability"}), flush=True)
 
     def forward_fixture(self, status):
-        # Only fixture-owned structured receipts leave the runner; raw build,
-        # installer, archive and failure logs remain unexported.
+        # Build logs are byte streams, not UTF-8 documents. Decode only candidate
+        # receipts; unrelated bytes must not hide cleanup or replace a failure.
         cleanup = False
         completed = None
         for name in ("installed-upgrade.stdout", "installed-upgrade.stderr"):
             path = self.directory / name
             if not path.exists():
                 continue
-            with path.open() as lines:
+            with path.open("rb") as lines:
                 for line in lines:
                     blocked = re.search(
-                        r"\bBLOCKED installed-upgrade phase=(old|current|rollback|inputs|build|installed-upgrade)"
-                        r"(?: status=(\d+))?; no fallback\s*$", line,
+                        rb"\bBLOCKED installed-upgrade phase=(old|current|rollback|inputs|build|installed-upgrade)"
+                        rb"(?: status=(\d+))?; no fallback\s*$", line,
                     )
                     if blocked:
                         print(json.dumps({"fixtureBlocked": {
-                            "phase": blocked[1], "status": int(blocked[2]) if blocked[2] else status,
+                            "phase": blocked[1].decode("ascii"), "status": int(blocked[2]) if blocked[2] else status,
                         }}), flush=True)
                         continue
                     try:
-                        receipt = json.loads(line[line.index("{"):])
+                        receipt = json.loads(line[line.index(b"{"):])
                     except ValueError:
                         continue
                     if not fixture_event(receipt):

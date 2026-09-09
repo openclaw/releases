@@ -150,6 +150,53 @@ class InstallerTests(unittest.TestCase):
 
 
 class WorkflowBoundaryTests(unittest.TestCase):
+    def test_mixed_byte_logs_keep_sentinel_completion_and_cleanup_gates(self):
+        sha = "a" * 40
+        for mixed_stream in ("stdout", "stderr"):
+            for missing in (None, "sentinel", "completed", "cleanup"):
+                with self.subTest(mixed_stream=mixed_stream, missing=missing), \
+                     tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    probe = driver.Probe(root)
+                    output = io.StringIO()
+
+                    def command(stage, args):
+                        result = root / f"{stage}.stdout"
+                        if stage != "installed-upgrade":
+                            result.write_text(sha if stage == "qualifier-head" else "")
+                            return result
+                        stdout = b"" if missing == "sentinel" else (
+                            b"PASS installed-upgrade Node22 -> Node24 -> rollback; cleanup verified\n"
+                        )
+                        if missing != "completed":
+                            stdout += b"VM> " + json.dumps(COMPLETED).encode() + b"\n"
+                        stderr = b"" if missing == "cleanup" else json.dumps(CLEANUP).encode() + b"\n"
+                        for stream, data in (("stdout", stdout), ("stderr", stderr)):
+                            if stream == mixed_stream:
+                                data = (
+                                    b"\xff raw-private-log\nVM> {malformed JSON}\n"
+                                    b'VM> {"foreign":"\xff"}\n\xff VM> ' + data + b"\xff raw-trailer\n"
+                                )
+                            (root / f"{stage}.{stream}").write_bytes(data)
+                        return result
+
+                    with patch.dict(os.environ, {"NIX_QUALIFIER_SHA": sha,
+                                                "NIX_QUALIFIER_SYSTEM": "x86_64-linux"}, clear=True), \
+                         patch.object(driver.sys, "platform", "linux"), \
+                         patch.object(probe, "nix_preflight"), patch.object(driver, "kvm_preflight"), \
+                         patch.object(probe, "command", side_effect=command), \
+                         contextlib.redirect_stdout(output):
+                        if missing:
+                            with self.assertRaises(AssertionError):
+                                probe.qualify()
+                            self.assertNotIn('"result": "PASS"', output.getvalue())
+                        else:
+                            probe.qualify()
+                            self.assertIn('"result": "PASS"', output.getvalue())
+                            self.assertIn('"cleanup": "verified"', output.getvalue())
+                    for private in ("raw-private-log", "raw-trailer", "foreign", "malformed"):
+                        self.assertNotIn(private, output.getvalue())
+
     def test_exact_checkout_and_successful_cleanup_receipt_are_required(self):
         sha = "a" * 40
         for changed in ("", "head", "dirty", "receipt", "failure"):
@@ -215,16 +262,21 @@ class WorkflowBoundaryTests(unittest.TestCase):
                     if stage == "qualifier-head":
                         path.write_text(sha)
                     elif stage == "installed-upgrade":
-                        path.write_text(
-                            '{"phase":"current","postActivation":{"path":"/runner/temp/unit"}}\n'
-                            '{"phase":"current","private":"unrelated-json"}\n'
-                            '{"scope":"other","private":"unrelated-json"}\n'
-                            'raw-private-log\n' + json.dumps(COMPLETED) + "\n"
+                        path.write_bytes(
+                            b'\xff raw-private-log\nVM> {malformed JSON}\nVM> {"foreign":"\xff"}\n'
+                            + (
+                                '{"phase":"current","postActivation":{"path":"/runner/temp/unit"}}\n'
+                                '{"phase":"current","private":"unrelated-json"}\n'
+                                '{"scope":"other","private":"unrelated-json"}\n'
+                                'raw-private-log\n' + json.dumps(COMPLETED) + "\n"
+                            ).encode()
                         )
-                        (root / "installed-upgrade.stderr").write_text(
-                            "BLOCKED installed-upgrade phase=current; no fallback\n"
-                            "BLOCKED installed-upgrade phase=build status=7; no fallback\n"
-                            + (json.dumps(cleanup) + "\n" if cleanup else "")
+                        (root / "installed-upgrade.stderr").write_bytes(
+                            b"\xff VM> " + (
+                                "BLOCKED installed-upgrade phase=current; no fallback\n"
+                                "BLOCKED installed-upgrade phase=build status=7; no fallback\n"
+                                + (json.dumps(cleanup) + "\n" if cleanup else "")
+                            ).encode() + b"\xff raw-trailer\n"
                         )
                         raise error
                     else:
@@ -298,7 +350,8 @@ class WorkflowBoundaryTests(unittest.TestCase):
         self.assertNotIn(": write", proof)
         self.assertNotIn("secrets.", proof)
         self.assertIn("system: x86_64-linux", proof)
-        self.assertIn("system: aarch64-darwin", proof)
+        self.assertEqual(proof.count("          - os:"), 1)
+        self.assertNotIn("system: aarch64-darwin", proof)
         self.assertRegex(proof, r"NIX_QUALIFIER_SHA: [0-9a-f]{40}\n")
         steps = proof.split("      - name: ")[1:]
         token_steps = [step for step in steps if "github.token" in step or "GH_TOKEN" in step]
