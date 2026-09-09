@@ -5,12 +5,18 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      qualify_installed_upgrade:
+        description: "One-off isolated Node22 to Node24 install and HM rollback proof"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   validate:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.qualify_installed_upgrade }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,3 +112,62 @@ jobs:
         run: |
           printf 'release action round-trip proof\n' | diff - "$RUNNER_TEMP/action-proof-downloaded/proof.txt"
           echo "Cache and artifact round trips passed."
+
+  installed_upgrade:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.qualify_installed_upgrade &&
+      github.repository == 'openclaw/releases' &&
+      github.ref != 'refs/heads/main' &&
+      github.ref == 'refs/heads/test/nix-installed-upgrade-driver-20260909' &&
+      github.actor == 'vincentkoc' && github.triggering_actor == 'vincentkoc'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            system: x86_64-linux
+          - os: macos-14
+            system: aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    env:
+      NIX_QUALIFIER_SHA: 572f70cf2cd0fd9f562de1277f0d7ccaa44cbd05
+      NIX_QUALIFIER_SYSTEM: ${{ matrix.system }}
+    steps:
+      - name: Checkout exact public recipe without credentials
+        shell: bash
+        run: |
+          set +e
+          (
+            set -e
+            git init .
+            git remote add origin https://github.com/openclaw/releases.git
+            git -c credential.helper= fetch --depth=1 origin "$GITHUB_SHA"
+            git checkout --detach FETCH_HEAD
+            test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          ) >"$RUNNER_TEMP/nar-checkout.log" 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "Installed upgrade blocked: stage=checkout exit=$code"
+            exit "$code"
+          fi
+
+      - name: Install Nix using the unchanged approved installer without a token
+        run: python3 -B scripts/probe-original-nar.py install
+
+      - name: Download and bind the original public artifact
+        if: ${{ runner.os == 'macOS' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/probe-original-nar.py download
+
+      - name: Prove original content with native Darwin fetchzip
+        if: ${{ runner.os == 'macOS' }}
+        run: python3 -B scripts/probe-original-nar.py prove
+
+      - name: Qualify the exact Nix fixture in its isolated HOME and service
+        run: python3 -B scripts/probe-original-nar.py qualify
