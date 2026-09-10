@@ -241,6 +241,13 @@ reap grace plus twenty seconds for failure reporting; qualification retains its
 longer probe cleanup grace. Diagnostic installer execution is capped at three
 minutes; the normal installer budget is only clipped by the shared deadline.
 
+Prefetch first verifies the build logger and JSON tee with a phase-based
+fixed-output fixture: fresh build/phase observations, a closed stderr marker,
+known output bytes, and an exact fixture-derivation mismatch are required.
+Its 120-second subdeadline includes prerequisites and reporting, clipped by the
+shared deadline. Missing proof stops before dependency prefetch; fixture hashes
+are never source hashes or package proof.
+
 Qualification builds the selected source through Home Manager's `gatewayPath`
 and actual `home.packages`, then verifies one isolated generation, package
 contents, Control UI assets, CLI exports, real packaged plugin CLI/RPC actions,
@@ -257,9 +264,25 @@ terminal receipts. SIGINT/SIGTERM cannot interrupt an already-running bounded
 teardown. Denied cleanup preserves the original failure and reports
 `cleanupException: PermissionError`, without claiming termination or cleanup
 verification. A runner hard kill can still prevent a terminal receipt; a start
-alone is not a pass. Only closed receipts and bounded, scrubbed failure diagnostics
-are printed. The macOS lane qualifies
-macOS 26 on Apple Silicon, not every Darwin release.
+alone is not a pass. Builds use `raw-with-logs`; timeout diagnostics expose only
+the exception type and duration, not command arguments. Failure stderr projection
+reads at most the last 64 KiB; normal returned prefetch stderr remains the
+authoritative exact-derivation mismatch input.
+
+Only the prefetch builds (including its logging fixture) add a unique JSON
+journal, precreated 0600 in a 0700 directory because Nix resets its umask.
+Capture stays runner-private and has no byte-size cap. Diagnostic processing
+is limited to 16 MiB, 64 KiB per record, 256 activities, eight displayed rows,
+4 KiB output and a two-second processing deadline within the existing report
+margin. Gaps or limits are explicitly unknown. Derivations are classified as
+selected/other/unknown by exact identity, not dependency-graph proximity.
+Only native activity IDs, parents, types, validated public derivation basenames,
+allowlisted builder-reported phases and numeric progress are projected.
+Names require the known store/hash shape, bounded characters/length, and the
+same privacy filter as errors; rejected names remain unknown. Stop records do not prove success;
+diagnostics never supply source hashes, package proof, or cleanup proof.
+Only closed receipts and bounded, scrubbed diagnostics are printed. The macOS
+lane qualifies macOS 26 on Apple Silicon, not every Darwin release.
 
 Control UI proof checks the selected source's public-file inventory for installed
 existence, then compares served identity bytes with installed postbuild files,

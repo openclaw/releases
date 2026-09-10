@@ -21,11 +21,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts/nix-source-qualification"
 sys.path.insert(0, str(SCRIPTS))
 import driver
+import build_diagnostics
 import probe
 import service
 
 HASH = "sha256-" + base64.b64encode(bytes(range(32))).decode()
 DRV = "/nix/store/fixture-openclaw-gateway-pnpm-deps.drv"
+LOGGING_DRV = "/nix/store/fixture-logging.drv"
+LOGGING_HASH = "sha256-" + base64.b64encode(driver.hashlib.sha256(b"nix-source-logging-fixture\n").digest()).decode()
+LOGGING_MARKER = b'{"nixLoggingFixture":"builder-marker"}\n'
 HOSTED = {
     "GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted",
     "GITHUB_REPOSITORY": "openclaw/releases", "GITHUB_EVENT_NAME": "workflow_dispatch",
@@ -33,6 +37,14 @@ HOSTED = {
     "GITHUB_TRIGGERING_ACTOR": "vincentkoc", "GITHUB_SHA": "a" * 40,
     "NIX_QUALIFIER_SYSTEM": "x86_64-linux",
 }
+
+
+def build_activity(ident, drv=DRV, parent=0):
+    return {"action": "start", "id": ident, "parent": parent, "type": 105, "fields": [drv, "", 1, 1]}
+
+
+def journal_bytes(events):
+    return b"".join(json.dumps(event).encode() + b"\n" for event in events)
 
 
 class AdmissionTests(unittest.TestCase):
@@ -112,11 +124,16 @@ class AdmissionTests(unittest.TestCase):
 
     def test_only_exact_dependency_mismatch_is_discovery(self):
         log = f"error: hash mismatch in fixed-output derivation '{DRV}':\n  specified: {driver.FAKE_HASH}\n  got: {HASH}\n".encode()
+        tail = b"error: Cannot build '/nix/store/helper.drv'.\nLast 3 log lines:\n" + b"".join(
+            b"> " + line + b"\n" for line in log.splitlines())
         for status, output, accepted in [
             (1, log, True), (1, b"\xffunrelated\n" + log, True), (0, log, False),
             (1, log.replace(DRV.encode(), b"/nix/store/transitive.drv"), False),
             (1, log + log, False), (1, b"compilation failed", False),
             (1, log.replace(HASH.encode(), driver.FAKE_HASH.encode()), False),
+            (1, log + tail, True), (1, tail, False),
+            (1, log.replace(DRV.encode(), b"/nix/store/transitive.drv") + tail, False),
+            (1, log + log + tail, False),
         ]:
             with self.subTest(status=status, output=output):
                 if accepted:
@@ -124,6 +141,33 @@ class AdmissionTests(unittest.TestCase):
                 else:
                     with self.assertRaises(RuntimeError):
                         driver.dependency_mismatch(status, output, DRV)
+
+    def test_all_shared_builds_request_unsuppressed_builder_logs(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, HOSTED):
+            instance = driver.Driver(Path(td))
+            instance.args = ["--file", "fixture.nix"]
+            for stage, attribute in (("dependency-prefetch", "dependencies"),
+                                     ("package-contents", "contents"), ("native-ownership", "ownership"),
+                                     ("qualification", "linux"), ("activation", "activation"), ("inputs", "inputs")):
+                with self.subTest(stage=stage), patch.object(instance, "command") as command:
+                    instance.build(stage, attribute)
+                    argv = command.call_args.args[1]
+                    self.assertEqual(argv[argv.index("--log-format") + 1], "raw-with-logs")
+                    self.assertNotIn("--print-build-logs", argv)
+                    self.assertNotIn("-L", argv)
+                    self.assertNotIn("json-log-path", argv)
+                    self.assertEqual(argv[-1], attribute)
+
+    def test_timeout_diagnostic_uses_duration_without_inspecting_argv(self):
+        error = subprocess.TimeoutExpired(
+            ["nix", "--option", "access-tokens", "", "https://example.invalid/private", "secret-canary"], 12.5)
+        fields = vars(error).copy()
+        with patch.object(subprocess.TimeoutExpired, "__str__", side_effect=AssertionError("argv disclosure")):
+            self.assertEqual(driver.failure_diagnostic(error, b""), ["TimeoutExpired after 12.5 seconds"])
+            verbose = driver.failure_diagnostic(error, b"error: failed\n" * 20)
+            self.assertEqual(verbose[0], "TimeoutExpired after 12.5 seconds")
+            self.assertEqual(len(verbose), 6)
+        self.assertEqual(vars(error), fields)
 
     def test_receipts_require_order_cleanup_exit_success_and_closed_fields(self):
         cleanup = {"qualification": "cleanup", "verified": True}
@@ -186,6 +230,22 @@ class AdmissionTests(unittest.TestCase):
             self.assertEqual(vars(error), {})
             self.assertEqual((Path(td) / "fixture.stdout").read_bytes(), b"\xffbefore")
             self.assertEqual((Path(td) / "fixture.stderr").read_bytes(), b"\xfeinterrupted")
+
+    def test_failure_stderr_tail_is_bounded_without_truncating_private_capture(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, HOSTED):
+            instance = driver.Driver(Path(td))
+            data = b"error: excluded prefix\n" + b"x" * (2 * build_diagnostics.RECORD_LIMIT) + b"\nerror: retained\n"
+            def failure(args, env, check, timeout, grace, *, stdout, stderr):
+                stderr.write(data)
+                return subprocess.CompletedProcess(args, 7)
+            with patch.object(driver, "run", failure), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(subprocess.CalledProcessError) as caught:
+                    instance.command("fixture", ["fixture"])
+            path = Path(td) / "fixture.stderr"
+            self.assertEqual(path.read_bytes(), data)
+            self.assertEqual(caught.exception.stderr, b"error: retained\n")
+            self.assertEqual(driver.stderr_tail(path), caught.exception.stderr)
+            self.assertEqual(driver.failure_diagnostic(caught.exception, data), ["error: retained"])
 
     def test_shared_deadline_spends_remaining_time_and_stops_before_spawn(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, HOSTED):
@@ -305,9 +365,18 @@ class AdmissionTests(unittest.TestCase):
             with self.subTest(phase=phase):
                 self.check_discovery_phase(phase)
 
-    def check_discovery_phase(self, phase):
+    def test_prefetch_stops_before_dependencies_when_logging_fixture_is_unproven(self):
+        for failure in ("marker", "hash", "phase", "activity", "private", "timeout", "no-build"):
+            with self.subTest(failure=failure):
+                self.check_discovery_phase("prefetch", failure)
+
+    def test_duplicate_fixture_marker_rendering_does_not_imply_another_build(self):
+        self.check_discovery_phase("prefetch", "duplicate-marker")
+
+    def check_discovery_phase(self, phase, fixture_failure=None):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, HOSTED):
             instance = driver.Driver(Path(td))
+            instance.deadline = time.monotonic() + driver.SOURCE_PHASE_BUDGET
             metadata = {
                 "packagingCommit": instance.identity["packagingCommit"],
                 "sourceCommit": instance.identity["sourceCommit"], "system": "x86_64-linux",
@@ -320,11 +389,40 @@ class AdmissionTests(unittest.TestCase):
                 values = {
                     "source-prefetch": {"storePath": td, "hash": HASH},
                     "cache-config": {"extra-substituters": [], "extra-trusted-public-keys": []},
-                    "metadata": metadata, "dependency-drv": DRV,
+                    "metadata": metadata, "dependency-drv": DRV, "logging-fixture-drv": LOGGING_DRV,
                 }
-                if stage == "dependency-prefetch":
-                    log = f"hash mismatch in fixed-output derivation '{DRV}':\nspecified: {driver.FAKE_HASH}\ngot: {HASH}\n"
-                    return subprocess.CompletedProcess([], 1, b"", log.encode())
+                if stage in ("dependency-prefetch", "logging-fixture"):
+                    fixture = stage == "logging-fixture"
+                    selected_drv, selected_hash = (LOGGING_DRV, LOGGING_HASH) if fixture else (DRV, HASH)
+                    journal = Path(args[args.index("json-log-path") + 1])
+                    self.assertEqual(journal.stat().st_mode & 0o777, 0o600)
+                    self.assertEqual(journal.parent.stat().st_mode & 0o777, 0o700)
+                    self.assertEqual(journal.read_bytes(), b"")
+                    self.assertEqual(args[args.index("--log-format") + 1], "raw-with-logs")
+                    events = [build_activity(1, selected_drv),
+                              {"action": "result", "id": 1, "type": 104, "fields": ["buildPhase"]},
+                              {"action": "stop", "id": 1}]
+                    if fixture and fixture_failure == "activity":
+                        events[0]["fields"][0] = "/nix/store/unrelated.drv"
+                    if fixture and fixture_failure == "phase":
+                        events[1]["id"] = 2
+                    if fixture and fixture_failure == "no-build":
+                        events = []
+                    journal.write_bytes(journal_bytes(events))
+                    if fixture and fixture_failure == "private":
+                        journal.chmod(0o644)
+                    if fixture and fixture_failure == "timeout":
+                        raise subprocess.TimeoutExpired(["nix", "secret-canary"], 90)
+                    if fixture and fixture_failure == "hash":
+                        selected_hash = HASH
+                    log = (f"hash mismatch in fixed-output derivation '{selected_drv}':\n"
+                           f"specified: {driver.FAKE_HASH}\ngot: {selected_hash}\n").encode()
+                    if fixture and fixture_failure != "marker":
+                        log = LOGGING_MARKER + log
+                    if fixture and fixture_failure == "duplicate-marker":
+                        log = LOGGING_MARKER + log
+                    (Path(td) / f"{stage}.stderr").write_bytes(log)
+                    return subprocess.CompletedProcess([], 1, b"", log)
                 if stage == "dependency-dry-run":
                     return subprocess.CompletedProcess([], 0, b'[{"drvPath":"fixture","outputs":{}}]', b"")
                 return subprocess.CompletedProcess([], 0, json.dumps(values[stage]).encode(), b"")
@@ -335,16 +433,28 @@ class AdmissionTests(unittest.TestCase):
             output = io.StringIO()
             with patch.object(instance, "command", side_effect=results), patch.object(instance, "nix", side_effect=nix), \
                     contextlib.redirect_stdout(output):
-                instance.native(phase)
+                if fixture_failure and fixture_failure != "duplicate-marker":
+                    with self.assertRaises((RuntimeError, subprocess.TimeoutExpired)):
+                        instance.native(phase)
+                else:
+                    instance.native(phase)
             events = [json.loads(line) for line in output.getvalue().splitlines()]
             self.assertEqual(events[0], {"stage": "metadata-contract", "status": "completed"})
+            if fixture_failure and fixture_failure != "duplicate-marker":
+                self.assertEqual(calls[-1][0], "logging-fixture")
+                self.assertFalse(any(event.get("result") in ("DISCOVERED", "PASS") for event in events))
+                return
             receipt = events[-1]
             self.assertIs(receipt["packageProof"], False)
             if phase == "prefetch":
                 self.assertEqual(receipt["result"], "DISCOVERED")
                 self.assertEqual(receipt["pnpmDepsHash"], HASH)
                 self.assertEqual([stage for stage, _, _ in calls],
-                                 ["source-prefetch", "cache-config", "metadata", "dependency-drv", "dependency-prefetch"])
+                                 ["source-prefetch", "cache-config", "metadata", "logging-fixture-drv",
+                                  "logging-fixture", "dependency-drv", "dependency-prefetch"])
+                self.assertIn({"stage": "logging-fixture-contract", "status": "completed", "packageProof": False}, events)
+                captures = [event for event in events if "activityDiagnostic" in event]
+                self.assertEqual([event["stage"] for event in captures], ["logging-fixture", "dependency-prefetch"])
             else:
                 self.assertEqual(receipt["result"], "DIAGNOSTIC")
                 self.assertNotIn("pnpmDepsHash", receipt)
@@ -356,6 +466,237 @@ class AdmissionTests(unittest.TestCase):
                 self.assertEqual(options[options.index("allow-import-from-derivation") + 1], "false")
             self.assertIn("https://github.com/openclaw/openclaw/archive/" + metadata["sourceCommit"] + ".tar.gz", calls[0][2])
             self.assertEqual(calls[-1][2][-1], "dependencies")
+
+
+class BuildDiagnosticsTests(unittest.TestCase):
+    def project(self, records):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "journal"
+            path.write_bytes(records)
+            path.chmod(0o600)
+            return build_diagnostics.activity_diagnostic(path, DRV)
+
+    def test_interleaving_correlates_only_known_activity_ids_and_exact_derivations(self):
+        events = [
+            {"action": "start", "id": 1, "parent": 0, "type": 104},
+            build_activity(2, parent=1), build_activity(3, "/nix/store/other.drv", parent=1),
+            {"action": "start", "id": 4, "parent": 3, "type": 101, "fields": ["https://example.invalid/private"]},
+            {"action": "result", "id": 2, "type": 104, "fields": ["unpackPhase"]},
+            {"action": "result", "id": 3, "type": 104, "fields": ["buildPhase"]},
+            {"action": "result", "id": 2, "type": 105, "fields": [1, 2, 3, 4]},
+            {"action": "result", "id": 4, "type": 104, "fields": ["installPhase"]},
+            {"action": "result", "id": 2, "type": 104, "fields": ["installPhase"]},
+            {"action": "stop", "id": 3},
+        ]
+        result = self.project(journal_bytes(events))
+        self.assertEqual(result["coverage"], "observed-records")
+        rows = {row["id"]: row for row in result["activities"]}
+        self.assertEqual(rows[2], {
+            "id": 2, "parent": 1, "type": 105, "derivation": "selected", "stop": "unknown",
+            "derivationName": "unknown",
+            "lastPhase": "installPhase", "progress": {"done": 1, "expected": 2, "running": 3, "failed": 4},
+        })
+        self.assertEqual(rows[3]["derivation"], "other")
+        self.assertEqual(rows[3]["stop"], "observed")
+        self.assertEqual(rows[3]["lastPhase"], "buildPhase")
+        self.assertEqual(rows[4]["derivation"], "unknown")
+        self.assertEqual(rows[4]["lastPhase"], "unknown")
+        self.assertNotIn("success", json.dumps(result))
+
+    def test_arbitrary_fields_and_secret_canaries_never_escape(self):
+        canary = "secret-canary https://example.invalid/private /home/operator/private token=fixture-sensitive"
+        events = [
+            build_activity(1) | {"text": canary, "argv": [canary], "env": {"key": canary}},
+            {"action": "msg", "msg": canary, "raw_msg": canary},
+            {"action": "result", "id": 1, "type": 101, "fields": [canary]},
+            {"action": "result", "id": 1, "type": 104, "fields": [canary]},
+        ]
+        result = self.project(journal_bytes(events))
+        text = json.dumps(result)
+        self.assertEqual(result["activities"][0]["lastPhase"], "unknown")
+        for private in (canary, "secret-canary", "example.invalid", "/home/", "fixture-sensitive", DRV):
+            self.assertNotIn(private, text)
+
+    def test_only_validated_public_derivation_basenames_escape(self):
+        prefix = "/nix/store/" + "0" * 32 + "-"
+        for value, expected in (
+            (prefix + "bash-5.3p3.drv", "0" * 32 + "-bash-5.3p3.drv"),
+            (prefix + "nodejs-24.19.0-aarch64-apple-darwin.drv",
+             "0" * 32 + "-nodejs-24.19.0-aarch64-apple-darwin.drv"),
+            ("/nix/store/short-hash-bash.drv", "unknown"),
+            ("/nix/store/" + "e" * 32 + "-bash.drv", "unknown"),
+            (prefix + "token-fixture-sensitive.drv", "unknown"),
+            (prefix + "192.0.2.40.drv", "unknown"),
+            (prefix + "server.internal.drv", "unknown"),
+            (prefix + "person@example.invalid.drv", "unknown"),
+            (prefix + "name with spaces.drv", "unknown"),
+            (prefix + "x" * 161 + ".drv", "unknown"),
+            (prefix + "nested/home/operator/private.drv", "unknown"),
+            (prefix + "https://example.invalid/private.drv", "unknown"),
+        ):
+            with self.subTest(value=value):
+                result = self.project(journal_bytes([build_activity(1, value)]))
+                row = result["activities"][0]
+                self.assertEqual(row["derivationName"], expected)
+                self.assertNotIn(value, json.dumps(result))
+
+    def test_projection_failure_preserves_original_exception_and_cleanup_cause(self):
+        original = subprocess.TimeoutExpired(["nix", "secret-canary"], 12.5)
+        cause = PermissionError("fixture cleanup denial")
+        original.__cause__ = cause
+        fields = vars(original).copy()
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, HOSTED):
+            instance = driver.Driver(Path(td))
+            output = io.StringIO()
+            with patch.object(instance, "build", side_effect=original), \
+                    patch.object(driver, "activity_diagnostic", side_effect=RuntimeError("secret-canary")), \
+                    contextlib.redirect_stdout(output):
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    instance.prefetch_build("dependency-prefetch", "dependencies", DRV)
+            self.assertIs(caught.exception, original)
+            self.assertIs(original.__cause__, cause)
+            self.assertEqual(vars(original), fields)
+            diagnostic = json.loads(output.getvalue())["activityDiagnostic"]
+            self.assertEqual(diagnostic["coverage"], "unknown")
+            self.assertEqual(diagnostic["activities"], [])
+            self.assertNotIn("secret-canary", output.getvalue())
+
+    def test_malformed_incomplete_or_uncorrelated_records_are_explicitly_unknown(self):
+        start = journal_bytes([build_activity(1)])
+        for data in (
+            b"", b"{", start[:-1], start + b"\xff\n", start + b"[]\n",
+            start + b'{"action":"stop","id":1,"id":2}\n',
+            journal_bytes([build_activity(True)]),
+            journal_bytes([build_activity(1, parent=2)]),
+            journal_bytes([build_activity(1, parent=1)]),
+            journal_bytes([build_activity(1), build_activity(1)]),
+            journal_bytes([{"action": "stop", "id": 2}]),
+            start + journal_bytes([{"action": "result", "id": 1, "type": 105, "fields": [True, 0, 0, 0]}]),
+            start + journal_bytes([{"action": "result", "id": 1, "type": 104, "fields": []}]),
+            journal_bytes([build_activity(1) | {"fields": ["secret-canary", "", 1, 1]}]),
+        ):
+            with self.subTest(data=data):
+                result = self.project(data)
+                self.assertEqual(result["coverage"], "unknown")
+                self.assertTrue(result["gaps"])
+                self.assertNotIn("secret-canary", json.dumps(result))
+        missing = build_diagnostics.activity_diagnostic(Path("/nonexistent-fixture-journal"), DRV)
+        self.assertEqual(missing["coverage"], "unknown")
+
+    def test_real_processing_caps_bound_projection_and_keep_positive_selected_rows(self):
+        oversized = b'{"action":"msg","msg":"' + b"x" * build_diagnostics.RECORD_LIMIT + b'"}\n'
+        message = journal_bytes([{"action": "msg", "msg": "x" * 60000}])
+        cases = [
+            oversized,
+            message * (build_diagnostics.SCAN_LIMIT // len(message) + 1),
+            journal_bytes([build_activity(index, "/nix/store/other.drv") for index in range(1, 258)]),
+        ]
+        for records in cases:
+            with self.subTest(size=len(records)):
+                result = self.project(records)
+                self.assertEqual(result["coverage"], "unknown")
+                self.assertLessEqual(len(result["activities"]), 8)
+                self.assertLessEqual(len(json.dumps({"stage": "dependency-prefetch", "activityDiagnostic": result})), 4096)
+        events = [build_activity(1), {"action": "result", "id": 1, "type": 104, "fields": ["buildPhase"]}]
+        events.extend(build_activity(index, "/nix/store/other.drv") for index in range(2, 30))
+        result = self.project(journal_bytes(events))
+        self.assertEqual(result["gaps"], ["row-limit"])
+        self.assertEqual(result["activities"][-1]["derivation"], "selected")
+        maximal = []
+        for ident in range(1, 9):
+            maximal.extend([
+                build_activity(ident, "/nix/store/" + "0" * 32 + "-" + "x" * 160 + ".drv"),
+                {"action": "result", "id": ident, "type": 105, "fields": [2**64 - 1] * 4},
+            ])
+        result = self.project(journal_bytes(maximal))
+        self.assertLessEqual(len(json.dumps({"stage": "dependency-prefetch", "activityDiagnostic": result})), 4096)
+        with patch.object(build_diagnostics.time, "monotonic", side_effect=[0, 2, 2]):
+            result = self.project(journal_bytes([build_activity(1)]))
+        self.assertIn("time-limit", result["gaps"])
+
+    def test_prefetch_captures_are_private_fresh_and_never_supply_hash_authority(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, HOSTED):
+            instance = driver.Driver(Path(td))
+            captures = []
+            error = subprocess.TimeoutExpired(["nix", "secret-canary"], 1)
+            fields = vars(error).copy()
+            def build(stage, attribute, check, journal):
+                captures.append(journal)
+                self.assertEqual(journal.read_bytes(), b"")
+                self.assertEqual(journal.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(journal.parent.stat().st_mode & 0o777, 0o700)
+                journal.write_bytes(journal_bytes([
+                    build_activity(1), {"action": "result", "id": 1, "type": 104, "fields": ["buildPhase"]},
+                    {"action": "stop", "id": 1},
+                ]))
+                if len(captures) == 1:
+                    raise error
+                return subprocess.CompletedProcess([], 1, b"", b"compilation failed")
+            output = io.StringIO()
+            old_mask = os.umask(0o022)
+            try:
+                with patch.object(instance, "build", build), contextlib.redirect_stdout(output):
+                    with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                        instance.prefetch_build("dependency-prefetch", "dependencies", DRV)
+                    self.assertIs(caught.exception, error)
+                    with self.assertRaisesRegex(RuntimeError, "classified selected"):
+                        instance.prefetch_build("dependency-prefetch", "dependencies", DRV)
+            finally:
+                os.umask(old_mask)
+            self.assertEqual(vars(error), fields)
+            self.assertNotEqual(captures[0], captures[1])
+            self.assertEqual(captures[0].read_bytes(), captures[1].read_bytes())
+            receipts = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual(len(receipts), 2)
+            self.assertTrue(all(event["activityDiagnostic"]["privateCapture"] for event in receipts))
+            self.assertFalse(any("result" in event for event in receipts))
+            with patch.object(driver.tempfile, "mkdtemp", return_value=str(captures[0].parent)), \
+                    patch.object(instance, "build") as build:
+                with self.assertRaises(FileExistsError):
+                    instance.prefetch_build("dependency-prefetch", "dependencies", DRV)
+                build.assert_not_called()
+
+    def test_phase_script_emits_known_marker_and_output_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "out"
+            result = subprocess.run(["bash", SCRIPTS / "logging-fixture.sh"],
+                                    env={"PATH": os.environ["PATH"], "out": str(output)},
+                                    capture_output=True, check=True, cwd=td)
+            self.assertEqual(result.stderr, LOGGING_MARKER)
+            self.assertEqual(result.stdout, b"")
+            self.assertEqual(output.read_bytes(), b"nix-source-logging-fixture\n")
+
+    def test_fixture_deadline_includes_evaluation_build_and_reporting_without_reset(self):
+        for global_deadline in (1100, 5000):
+            with self.subTest(global_deadline=global_deadline), tempfile.TemporaryDirectory() as td, \
+                    patch.dict(os.environ, HOSTED):
+                instance = driver.Driver(Path(td))
+                instance.deadline = global_deadline
+                instance.args = ["--file", "fixture.nix"]
+                now = [1000]
+                observed = []
+                def nix(*args):
+                    observed.append(instance.deadline)
+                    now[0] += 10
+                    return subprocess.CompletedProcess([], 0, json.dumps(LOGGING_DRV).encode(), b"")
+                def prefetch(*args):
+                    observed.append(instance.deadline)
+                    now[0] += 10
+                    (Path(td) / "logging-fixture.stderr").write_bytes(LOGGING_MARKER)
+                    return LOGGING_HASH, {
+                        "privateCapture": True, "gaps": [],
+                        "activities": [{"type": 105, "derivation": "selected", "lastPhase": "buildPhase"}],
+                    }
+                with patch.object(driver.time, "monotonic", side_effect=lambda: now[0]), \
+                        patch.object(instance, "nix", nix), patch.object(instance, "prefetch_build", prefetch), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    instance.verify_build_logging()
+                    self.assertEqual(observed, [min(global_deadline, 1120)] * 2)
+                    self.assertEqual(instance.deadline, global_deadline)
+                    now[0] = global_deadline
+                    with self.assertRaisesRegex(RuntimeError, "deadline exhausted"):
+                        instance.verify_build_logging()
+                    self.assertEqual(instance.deadline, global_deadline)
 
 
 class IsolationTests(unittest.TestCase):
@@ -417,7 +758,7 @@ class IsolationTests(unittest.TestCase):
                 self.assertEqual(events[-2], {"stage": "fixture", "status": "failed", "exception": "TimeoutExpired"})
                 self.assertEqual(events[-1], {
                     "result": "BLOCKED", "stage": "fixture", "exception": "TimeoutExpired",
-                    "exit": 1, "diagnostic": [str(original)], "cleanupException": "PermissionError",
+                    "exit": 1, "diagnostic": ["TimeoutExpired after 0 seconds"], "cleanupException": "PermissionError",
                 })
 
     def test_service_pipe_defaults_and_caller_owned_files(self):

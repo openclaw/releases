@@ -119,6 +119,16 @@ assert builtins.elem system [ "x86_64-linux" "aarch64-darwin" ];
   dependencies = builtins.deepSeq metadata gateway.pnpmDeps;
   dependencyDrv = gateway.pnpmDeps.drvPath;
   cacheConfig = (import "${packaging}/flake.nix").nixConfig;
+  loggingFixture = pkgs.stdenvNoCC.mkDerivation {
+    name = "nix-source-logging-fixture";
+    phases = [ "buildPhase" ];
+    buildPhase = "${pkgs.bash}/bin/bash ${./logging-fixture.sh}";
+    outputHashMode = "flat";
+    outputHashAlgo = "sha256";
+    outputHash = lib.fakeHash;
+    preferLocalBuild = true;
+    allowSubstitutes = false;
+  };
   contents = pkgs.runCommand "openclaw-source-contents" {
     NODE_BIN = "${pkgs.nodejs_24}/bin/node";
     GATEWAY_ROOT = "${gateway}/lib/openclaw";

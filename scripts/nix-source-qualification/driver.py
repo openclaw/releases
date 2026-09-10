@@ -11,10 +11,13 @@ import platform
 import re
 import shutil
 import signal
+import subprocess
 import sys
+import tempfile
 import time
 import traceback
 
+from build_diagnostics import RECORD_LIMIT, activity_diagnostic, scrub_diagnostic
 from service import COMMAND_REAP_TIMEOUT, COMMAND_TERM_GRACE, PROBE_CLEANUP_BUDGET, ignore_cancellation, run, uninterrupted_cleanup
 
 HERE = Path(__file__).resolve().parent
@@ -26,6 +29,15 @@ FAKE_HASH = "sha256-" + base64.b64encode(bytes(32)).decode()
 DIAGNOSTIC_BUDGET = 8 * 60
 SOURCE_PHASE_BUDGET = 58 * 60
 COMMAND_REPORT_MARGIN = 20
+
+
+def stderr_tail(path):
+    with path.open("rb") as source:
+        source.seek(0, 2)
+        offset = max(0, source.tell() - RECORD_LIMIT)
+        source.seek(offset)
+        data = source.read(RECORD_LIMIT)
+        return data.partition(b"\n")[2] if offset else data
 
 
 def require(condition, message):
@@ -99,22 +111,17 @@ def fixture_complete(paths, status):
 
 
 def failure_diagnostic(error, stderr):
-    lines = [str(error)] if not hasattr(error, "returncode") else []
+    timeout = isinstance(error, subprocess.TimeoutExpired)
+    lines = [] if timeout or hasattr(error, "returncode") else [str(error)]
+    if len(stderr) > RECORD_LIMIT:
+        stderr = stderr[-RECORD_LIMIT:].partition(b"\n")[2]
     for line in stderr.decode("utf-8", errors="replace").splitlines():
         line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line).strip()
         if re.search(r"(?i)(?:\berror\b|\bfailed\b|\bmissing:|\bTS\d{4}:)", line):
             lines.append(line)
-    diagnostics = []
-    for line in lines[-6:]:
-        if re.search(r"(?i)(?:token|password|secret|authorization|bearer|private.key|gh[pousr]_|sk-)", line):
-            line = "<credential-bearing diagnostic redacted>"
-        line = re.sub(r"https?://\S+", "<url>", line)
-        line = re.sub(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", "<email>", line)
-        line = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<address>", line)
-        line = re.sub(r"\b(?:[0-9a-fA-F]{1,4}:){2,}[0-9a-fA-F:]+\b", "<address>", line)
-        line = re.sub(r"(?<![\w])/(?:[^\s'\"<>()[\]{}:,]+/?)+", "<path>", line)
-        line = re.sub(r"\b[\w-]+\.(?:local|internal|lan)\b", "<host>", line)
-        diagnostics.append(line[:240])
+    diagnostics = [scrub_diagnostic(line) for line in lines[-5 if timeout else -6:]]
+    if timeout:
+        diagnostics.insert(0, f"TimeoutExpired after {error.timeout:g} seconds")
     return diagnostics or ["no recognized diagnostic; see failing stage and exit status"]
 
 
@@ -153,7 +160,8 @@ class Driver:
             with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
                 result = run(args, self.env if env is None else env, False, timeout, terminate_grace,
                              stdout=stdout, stderr=stderr)
-            result.stdout, result.stderr = stdout_path.read_bytes(), stderr_path.read_bytes()
+            result.stdout = stdout_path.read_bytes()
+            result.stderr = stderr_tail(stderr_path) if check and result.returncode else stderr_path.read_bytes()
             if check:
                 result.check_returncode()
         except BaseException as error:
@@ -236,9 +244,9 @@ class Driver:
             }), flush=True)
             return
         if phase == "prefetch":
+            self.verify_build_logging()
             drv = json.loads(self.nix("dependency-drv", "eval", "--json", *self.args, "dependencyDrv").stdout)
-            result = self.build("dependency-prefetch", "dependencies", check=False)
-            deps_hash = dependency_mismatch(result.returncode, result.stderr, drv)
+            deps_hash, _ = self.prefetch_build("dependency-prefetch", "dependencies", drv)
             print(json.dumps({
                 "result": "DISCOVERED", "packageProof": False, **metadata,
                 "sourceHash": source["hash"], "pnpmDepsHash": deps_hash,
@@ -261,9 +269,52 @@ class Driver:
             **frozen, "cleanup": "verified",
         }), flush=True)
 
-    def build(self, stage, attribute, check=True):
-        return self.nix(stage, "build", "--no-link", "--print-out-paths", "--print-build-logs",
-                        "--log-format", "raw", *self.args, attribute, check=check)
+    def build(self, stage, attribute, check=True, journal=None):
+        options = ["--option", "json-log-path", str(journal)] if journal is not None else []
+        return self.nix(stage, "build", "--no-link", "--print-out-paths",
+                        "--log-format", "raw-with-logs", *options, *self.args, attribute, check=check)
+
+    def prefetch_build(self, stage, attribute, drv):
+        self.stage = stage
+        # Nix resets umask and opens its append journal with 0644. Never reuse a capture.
+        directory = Path(tempfile.mkdtemp(prefix=f"{stage}-", dir=self.directory))
+        journal = directory / "activity.jsonl"
+        with journal.open("xb") as output:
+            os.fchmod(output.fileno(), 0o600)
+        try:
+            result = self.build(stage, attribute, check=False, journal=journal)
+            value = dependency_mismatch(result.returncode, result.stderr, drv)
+        finally:
+            with uninterrupted_cleanup():
+                try:
+                    diagnostic = activity_diagnostic(journal, drv)
+                except Exception:
+                    diagnostic = {"coverage": "unknown", "privateCapture": False,
+                                  "gaps": ["projection-failed"], "activities": []}
+                print(json.dumps({"stage": stage, "activityDiagnostic": diagnostic}), flush=True)
+        return value, diagnostic
+
+    def verify_build_logging(self):
+        deadline = self.deadline
+        require(deadline is not None, "logging fixture requires the shared deadline")
+        self.deadline = min(deadline, time.monotonic() + 120)
+        try:
+            drv = json.loads(self.nix("logging-fixture-drv", "eval", "--json",
+                                     *self.args, "loggingFixture.drvPath").stdout)
+            value, diagnostic = self.prefetch_build("logging-fixture", "loggingFixture", drv)
+            require(value == "sha256-" + base64.b64encode(
+                hashlib.sha256(b"nix-source-logging-fixture\n").digest()).decode(), "wrong logging fixture output")
+            require(b'{"nixLoggingFixture":"builder-marker"}' in
+                    stderr_tail(self.directory / "logging-fixture.stderr").splitlines(), "logging fixture marker missing")
+            # Omitted display rows do not erase this positive, exactly correlated observation.
+            require(diagnostic["privateCapture"] and set(diagnostic["gaps"]) <= {"row-limit"} and any(
+                row["type"] == 105 and row["derivation"] == "selected" and row["lastPhase"] == "buildPhase"
+                for row in diagnostic["activities"]), "logging fixture build/phase not observed")
+            require(time.monotonic() < self.deadline, "logging fixture deadline exhausted")
+            print(json.dumps({"stage": "logging-fixture-contract", "status": "completed",
+                              "packageProof": False}), flush=True)
+        finally:
+            self.deadline = deadline
 
 
 def main():
@@ -303,7 +354,7 @@ def main():
             print(json.dumps({
                 "result": "BLOCKED", "stage": driver.stage, "exception": type(error).__name__,
                 "exit": getattr(error, "returncode", 1),
-                "diagnostic": failure_diagnostic(error, stderr.read_bytes() if stderr.exists() else b""),
+                "diagnostic": failure_diagnostic(error, stderr_tail(stderr) if stderr.exists() else b""),
                 **({"cleanupException": "PermissionError"} if isinstance(error.__cause__, PermissionError) else {}),
             }), flush=True)
         return 1

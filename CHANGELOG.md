@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Restore Nix builder-log capture, verify prefetch logging with a bounded fixed-output fixture, and report typed timeouts plus private-journal activity diagnostics.
+
 - Preserve interrupted Nix qualification output and stage receipts with shared phase deadlines; add a bounded metadata/dependency dry-run diagnostic phase without package builds or uploads.
 
 - Verify selected public UI file inventory and served postbuild root/nested files during source-only Nix qualification.
