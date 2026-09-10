@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import re
 import signal
 import subprocess
 import sys
@@ -48,6 +49,61 @@ def journal_bytes(events):
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_source_dispatch_routes_darwin_continuation_without_upload_jobs(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        validate, native = workflow.split("\n  nix-source-qualification:\n", 1)
+        include = re.search(r"include: >-\n(.*?)\n    runs-on:", native, re.S)
+        self.assertIsNotNone(include, "prefetch requires a phase-dependent native matrix")
+        expressions = {
+            "validate": re.search(r"if: \$\{\{ (.*?) \}\}", validate).group(1),
+            "native": re.search(r"if: >-\n(.*?)\n    permissions:", native, re.S).group(1),
+            "matrix": include.group(1).strip().removeprefix("${{").removesuffix("}}").strip(),
+        }
+        github = {
+            "event_name": "workflow_dispatch", "repository": "openclaw/releases",
+            "ref": "refs/heads/test/nix-source-qualification-driver-20260910",
+            "actor": "vincentkoc", "triggering_actor": "vincentkoc",
+        }
+        darwin = [{"os": "macos-26", "system": "aarch64-darwin"}]
+        both = [{"os": "ubuntu-24.04", "system": "x86_64-linux"}, *darwin]
+        cases = [
+            ({}, {"nix_source_phase": "prefetch"}, True, False, darwin),
+            ({}, {"nix_source_phase": "diagnostic"}, True, False, both),
+            ({}, {"nix_source_phase": "qualify"}, True, False, both),
+            ({}, {"nix_source_phase": "off"}, False, True, both),
+            ({}, {"nix_source_phase": "invalid"}, False, False, both),
+            ({}, {}, False, False, both),
+            ({}, {"nix_source_phase": None}, False, False, both),
+        ]
+        for key, value in (
+            ("event_name", "push"), ("event_name", "pull_request"),
+            ("repository", "other/releases"), ("ref", "refs/heads/main"),
+            ("actor", "other"), ("triggering_actor", "other"),
+            ("actor", None), ("triggering_actor", None),
+        ):
+            cases.append(({key: value}, {"nix_source_phase": "prefetch"},
+                          False, key == "event_name", darwin))
+        # These predicates use string equality/boolean operators; execute their
+        # actual text with Node, without copying the router or emulating Actions.
+        result = subprocess.run(["node", "-e", """
+const fs = require('node:fs'), vm = require('node:vm');
+const {expressions, cases} = JSON.parse(fs.readFileSync(0, 'utf8'));
+console.log(JSON.stringify(cases.map(context => Object.fromEntries(
+  Object.entries(expressions).map(([key, expression]) =>
+    [key, vm.runInNewContext(expression, {...context, fromJSON: JSON.parse}, {timeout: 100})])
+))));
+"""], input=json.dumps({
+            "expressions": expressions,
+            "cases": [{"github": github | changes, "inputs": inputs}
+                      for changes, inputs, *_ in cases],
+        }), text=True, capture_output=True, check=True)
+        observed = json.loads(result.stdout)
+        self.assertEqual(len(observed), len(cases))
+        for case, actual in zip(cases, observed):
+            changes, inputs, admitted, uploads, matrix = case
+            with self.subTest(changes=changes, inputs=inputs):
+                self.assertEqual(actual, {"native": admitted, "validate": uploads, "matrix": matrix})
+
     def test_source_dispatch_excludes_upload_jobs_and_keeps_read_only_permissions(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         validate, native = workflow.split("\n  nix-source-qualification:\n", 1)

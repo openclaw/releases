@@ -224,7 +224,10 @@ gh workflow run openclaw-release-evidence-from-full-validation.yml \
 The CI workflow's `nix_source_phase` dispatch input is restricted to the reviewed
 qualification branch and actor. `prefetch` records the exact source archive hash
 and classifies the selected package's fixed-output dependency hash mismatch on
-each native system. It is not package proof. After independent review, freeze
+the selected native systems. It is not package proof. This one-off Darwin
+continuation runs `prefetch` only on macOS 26; `diagnostic` and `qualify` retain
+both Linux and macOS. Earlier Linux discovery remains historical evidence, not
+proof for the updated packaging commit. After independent review, freeze
 both systems' real hashes in `scripts/nix-source-qualification/hashes.json`;
 `qualify` refuses missing or placeholder hashes.
 

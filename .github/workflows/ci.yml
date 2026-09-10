@@ -130,11 +130,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            system: x86_64-linux
-          - os: macos-26
-            system: aarch64-darwin
+        include: >-
+          ${{ fromJSON(inputs.nix_source_phase == 'prefetch' &&
+          '[{"os":"macos-26","system":"aarch64-darwin"}]' ||
+          '[{"os":"ubuntu-24.04","system":"x86_64-linux"},{"os":"macos-26","system":"aarch64-darwin"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ inputs.nix_source_phase == 'diagnostic' && 10 || 60 }}
     env:

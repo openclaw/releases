@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Run the one-off Nix prefetch continuation only on Darwin with the package-cache repair; retain both native platforms for diagnostics and qualification.
+
 - Restore Nix builder-log capture, verify prefetch logging with a bounded fixed-output fixture, and report typed timeouts plus private-journal activity diagnostics.
 
 - Preserve interrupted Nix qualification output and stage receipts with shared phase deadlines; add a bounded metadata/dependency dry-run diagnostic phase without package builds or uploads.
