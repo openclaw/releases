@@ -49,11 +49,15 @@ jobs:
         run: |
           node --check scripts/openclaw-release-evidence.mjs
           node --check scripts/openclaw-release-evidence-from-full-validation.mjs
+          node --check scripts/release-npm-beta-floor.mjs
 
       - name: Run workflow regression tests
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 -m unittest discover -s tests -v
+
+      - name: Run script tests
+        run: node --test 'tests/*.test.mjs'
 
       - name: Exercise selected package manager
         working-directory: .git/action-proof/source

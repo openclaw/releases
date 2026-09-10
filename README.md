@@ -26,8 +26,12 @@ maintenance, and durable release evidence separate from the product source repo.
   Swift test lane for an existing OpenClaw tag.
 - `.github/workflows/openclaw-macos-publish.yml` prepares and promotes signed
   macOS release artifacts for an existing OpenClaw tag.
-- `.github/workflows/openclaw-npm-dist-tags.yml` reconciles npm dist-tags after
-  package publication.
+- `.github/workflows/openclaw-npm-dist-tags.yml` promotes or syncs npm `latest`
+  for OpenClaw and enforces the beta floor: after every successful `latest`
+  mutation, on manual `sync_beta_to_stable` dispatch, and daily as a backstop,
+  `beta` for `openclaw` and every published official plugin is advanced to at
+  least its own `latest`; an equal or newer `beta` is preserved. The plugin
+  inventory is read as data from `openclaw/openclaw` `main` manifests.
 - `.github/workflows/openclaw-release-evidence.yml` records manually supplied
   release proof runs.
 - `.github/workflows/openclaw-release-evidence-from-full-validation.yml` ingests
@@ -109,7 +113,9 @@ build step. Run local checks with Node.js 24 and Python 3:
 ```bash
 node --check scripts/openclaw-release-evidence.mjs
 node --check scripts/openclaw-release-evidence-from-full-validation.mjs
+node --check scripts/release-npm-beta-floor.mjs
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+node --test 'tests/*.test.mjs'
 ```
 
 ## Release Approval
