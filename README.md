@@ -228,6 +228,19 @@ each native system. It is not package proof. After independent review, freeze
 both systems' real hashes in `scripts/nix-source-qualification/hashes.json`;
 `qualify` refuses missing or placeholder hashes.
 
+The `diagnostic` phase stops after the existing metadata assertions and
+`nix build --dry-run --json --no-link` for the selected dependency derivation,
+with import-from-derivation disabled. Its JSON describes requested derived
+outputs, not the full transitive build plan. It neither builds dependencies nor
+activates a generation, discovers dependency hashes, or supplies package proof.
+The diagnostic job is capped at ten minutes; other source jobs remain at sixty.
+All source jobs cap checkout at one minute. Installer and native steps share one
+monotonic deadline, established once: eight minutes for diagnostics, fifty-eight
+for prefetch/qualification. Every command reserves its existing termination and
+reap grace plus twenty seconds for failure reporting; qualification retains its
+longer probe cleanup grace. Diagnostic installer execution is capped at three
+minutes; the normal installer budget is only clipped by the shared deadline.
+
 Qualification builds the selected source through Home Manager's `gatewayPath`
 and actual `home.packages`, then verifies one isolated generation, package
 contents, Control UI assets, CLI exports, real packaged plugin CLI/RPC actions,
@@ -238,8 +251,14 @@ installation or change pins, tags, releases, or deployment state. No local Nix
 execution is supported.
 The source dispatch skips normal CI's cache/artifact round-trip job; native jobs
 upload neither caches nor artifacts. Raw output stays in disposable runner
-scratch; only closed qualification receipts are printed.
-Failures include bounded, scrubbed diagnostics. The macOS lane qualifies
+scratch, including partial bytes from interrupted commands. Stage-start receipts
+are flushed before spawning; handled completion, timeout, and cancellation emit
+terminal receipts. SIGINT/SIGTERM cannot interrupt an already-running bounded
+teardown. Denied cleanup preserves the original failure and reports
+`cleanupException: PermissionError`, without claiming termination or cleanup
+verification. A runner hard kill can still prevent a terminal receipt; a start
+alone is not a pass. Only closed receipts and bounded, scrubbed failure diagnostics
+are printed. The macOS lane qualifies
 macOS 26 on Apple Silicon, not every Darwin release.
 
 Control UI proof checks the selected source's public-file inventory for installed

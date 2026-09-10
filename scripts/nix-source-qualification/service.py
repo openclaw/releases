@@ -1,6 +1,7 @@
 """Supervisor ownership and bounded teardown for the disposable HM instance."""
 
 import configparser
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -25,31 +26,71 @@ SERVICE_CLEANUP_BUDGET = 2 * STATE_BUDGET + STOP_TIMEOUT + COMMAND_CLEANUP_BUDGE
 PROBE_CLEANUP_BUDGET = COMMAND_CLEANUP_BUDGET + SERVICE_CLEANUP_BUDGET
 
 
-def run(args, env, check=True, timeout=120, terminate_grace=COMMAND_TERM_GRACE):
+def ignore_cancellation():
+    # Block both signals while installing IGN so cancellation cannot interrupt
+    # the transition before teardown starts. Preserve the caller's full mask.
+    signals = (signal.SIGINT, signal.SIGTERM)
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, signals)
+    try:
+        return {sig: signal.signal(sig, signal.SIG_IGN) for sig in signals}
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+
+
+@contextmanager
+def uninterrupted_cleanup():
+    # Cancellation has already won. Later signals must not interrupt child reaping.
+    handlers = ignore_cancellation()
+    try:
+        yield
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+
+
+def run(args, env, check=True, timeout=120, terminate_grace=COMMAND_TERM_GRACE,
+        *, stdout=subprocess.PIPE, stderr=subprocess.PIPE):
     process = subprocess.Popen(
         [str(arg) for arg in args], env=env, start_new_session=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdout=stdout, stderr=stderr,
     )
     try:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
-        except BaseException:
+        except BaseException as original:
             # Reap only this command's new process group, including on interruption.
-            for sig, grace in ((signal.SIGTERM, terminate_grace), (signal.SIGKILL, COMMAND_REAP_TIMEOUT)):
+            with uninterrupted_cleanup():
                 try:
-                    os.killpg(process.pid, sig)
-                except ProcessLookupError:
-                    pass
-                try:
-                    process.communicate(timeout=grace)
-                    break
-                except subprocess.TimeoutExpired:
-                    if sig == signal.SIGKILL:
-                        raise
+                    for sig, grace in ((signal.SIGTERM, terminate_grace), (signal.SIGKILL, COMMAND_REAP_TIMEOUT)):
+                        deadline = time.monotonic() + grace
+                        try:
+                            os.killpg(process.pid, sig)
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            process.communicate(timeout=max(0, deadline - time.monotonic()))
+                            if sig == signal.SIGKILL:
+                                break
+                            # File-backed output does not keep communicate waiting for descendants.
+                            # Keep the remaining grace for this command's group, even after leader exit.
+                            while True:
+                                os.killpg(process.pid, 0)
+                                remaining = deadline - time.monotonic()
+                                if remaining <= 0:
+                                    break
+                                time.sleep(min(0.05, remaining))
+                        except ProcessLookupError:
+                            break
+                        except subprocess.TimeoutExpired:
+                            pass
+                except PermissionError as cleanup_error:
+                    # Denial is not proof the group is gone; retain both failures.
+                    raise original from cleanup_error
             raise
     finally:
-        process.stdout.close()
-        process.stderr.close()
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
     result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
     if check:
         result.check_returncode()

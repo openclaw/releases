@@ -10,7 +10,7 @@ on:
         description: "One-off isolated source qualification (no promotion)"
         type: choice
         default: "off"
-        options: ["off", "prefetch", "qualify"]
+        options: ["off", "diagnostic", "prefetch", "qualify"]
 
 permissions:
   contents: read
@@ -122,7 +122,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.repository == 'openclaw/releases' &&
-      (inputs.nix_source_phase == 'prefetch' || inputs.nix_source_phase == 'qualify') &&
+      (inputs.nix_source_phase == 'diagnostic' || inputs.nix_source_phase == 'prefetch' || inputs.nix_source_phase == 'qualify') &&
       github.ref == 'refs/heads/test/nix-source-qualification-driver-20260910' &&
       github.actor == 'vincentkoc' && github.triggering_actor == 'vincentkoc'
     permissions:
@@ -136,12 +136,13 @@ jobs:
           - os: macos-26
             system: aarch64-darwin
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.nix_source_phase == 'diagnostic' && 10 || 60 }}
     env:
       NIX_QUALIFIER_SYSTEM: ${{ matrix.system }}
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Checkout exact public driver without credentials
+        timeout-minutes: 1
         shell: bash
         run: |
           set -euo pipefail

@@ -12,9 +12,10 @@ import re
 import shutil
 import signal
 import sys
+import time
 import traceback
 
-from service import COMMAND_TERM_GRACE, PROBE_CLEANUP_BUDGET, run
+from service import COMMAND_REAP_TIMEOUT, COMMAND_TERM_GRACE, PROBE_CLEANUP_BUDGET, ignore_cancellation, run, uninterrupted_cleanup
 
 HERE = Path(__file__).resolve().parent
 BRANCH = "refs/heads/test/nix-source-qualification-driver-20260910"
@@ -22,6 +23,9 @@ SYSTEMS = {("linux", "x86_64"): "x86_64-linux", ("darwin", "arm64"): "aarch64-da
 INSTALLER_SHA = "13d8dd58da0234aa297dedd986986ccb8e7f3e24"
 INSTALLER_HASH = "836671507d9b4ea84252f968bd0622c5c2fa72f5deea93f5764f1c60821062f6"
 FAKE_HASH = "sha256-" + base64.b64encode(bytes(32)).decode()
+DIAGNOSTIC_BUDGET = 8 * 60
+SOURCE_PHASE_BUDGET = 58 * 60
+COMMAND_REPORT_MARGIN = 20
 
 
 def require(condition, message):
@@ -38,7 +42,7 @@ def runner_guard(phase):
         and env.get("GITHUB_ACTOR") == env.get("GITHUB_TRIGGERING_ACTOR") == "vincentkoc",
         "only the approved hosted branch/actor may run this driver",
     )
-    require(phase in ("install", "prefetch", "qualify"), "unknown phase")
+    require(phase in ("install", "diagnostic", "prefetch", "qualify"), "unknown phase")
     require(not env.get("GH_TOKEN") and not env.get("GITHUB_TOKEN"), "credentials must not reach the driver")
     native = SYSTEMS.get((sys.platform, platform.machine()))
     require(native is not None and env.get("NIX_QUALIFIER_SYSTEM") == native, "native runner mismatch")
@@ -118,6 +122,7 @@ class Driver:
     def __init__(self, directory):
         self.directory = directory
         self.stage = "identity"
+        self.deadline = None
         self.identity = json.loads((HERE / "hashes.json").read_text())
         for key in ("sourceCommit", "packagingCommit"):
             value = self.identity.get(key)
@@ -136,17 +141,31 @@ class Driver:
     def command(self, stage, args, check=True, env=None, timeout=3600,
                 terminate_grace=COMMAND_TERM_GRACE):
         self.stage = stage
-        result = run(args, self.env if env is None else env, False, timeout, terminate_grace)
-        (self.directory / f"{stage}.stdout").write_bytes(result.stdout)
-        (self.directory / f"{stage}.stderr").write_bytes(result.stderr)
-        if check:
-            result.check_returncode()
+        print(json.dumps({"stage": stage, "status": "started"}), flush=True)
+        stdout_path, stderr_path = (self.directory / f"{stage}.{stream}" for stream in ("stdout", "stderr"))
+        try:
+            if self.deadline is not None:
+                remaining = self.deadline - time.monotonic() - (
+                    terminate_grace + COMMAND_REAP_TIMEOUT + COMMAND_REPORT_MARGIN)
+                if remaining <= 0:
+                    raise TimeoutError("source phase deadline exhausted")
+                timeout = min(timeout, remaining)
+            with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                result = run(args, self.env if env is None else env, False, timeout, terminate_grace,
+                             stdout=stdout, stderr=stderr)
+            result.stdout, result.stderr = stdout_path.read_bytes(), stderr_path.read_bytes()
+            if check:
+                result.check_returncode()
+        except BaseException as error:
+            print(json.dumps({"stage": stage, "status": "failed", "exception": type(error).__name__}), flush=True)
+            raise
+        print(json.dumps({"stage": stage, "status": "completed", "exit": result.returncode}), flush=True)
         return result
 
     def nix(self, stage, command, *args, check=True):
         return self.command(stage, ["nix", *self.nix_options, command, *args], check)
 
-    def install(self):
+    def install(self, timeout=3600):
         require(shutil.which("nix") is None, "refusing an existing Nix installation")
         result = self.command("installer-download", [
             "curl", "--fail", "--silent", "--show-error", "--location", "--max-time", "60",
@@ -159,9 +178,12 @@ class Driver:
                    INPUT_GITHUB_ACCESS_TOKEN="", INPUT_EXTRA_NIX_CONFIG=(
                        "always-allow-substitutes = false\npost-build-hook =\nbuilders =\n"
                        "accept-flake-config = false\naccess-tokens ="))
-        self.command("installer", ["bash", self.directory / "installer-download.stdout"], env=env)
+        self.command("installer", ["bash", self.directory / "installer-download.stdout"], env=env,
+                     timeout=timeout)
 
     def native(self, phase):
+        if phase == "diagnostic":
+            self.nix_options.extend(["--option", "allow-import-from-derivation", "false"])
         config = json.loads(self.command("effective-config", ["nix", "config", "show", "--json"]).stdout)
         require(config["always-allow-substitutes"]["value"] is False
                 and config["accept-flake-config"]["value"] is False
@@ -204,6 +226,15 @@ class Driver:
             "system": self.system, "version": "2026.9.3", "pnpm": "12.3.4", "node": "24.19.0",
             "pinnedRev": None, "defaultNpmLazy": True,
         }, "unexpected source metadata")
+        print(json.dumps({"stage": "metadata-contract", "status": "completed"}), flush=True)
+        if phase == "diagnostic":
+            self.nix("dependency-dry-run", "build", "--dry-run", "--json", "--no-link",
+                     *self.args, "dependencies")
+            print(json.dumps({
+                "result": "DIAGNOSTIC", "packageProof": False, **metadata,
+                "dependencyDryRun": "completed", "scope": "requested-derived-outputs-only",
+            }), flush=True)
+            return
         if phase == "prefetch":
             drv = json.loads(self.nix("dependency-drv", "eval", "--json", *self.args, "dependencyDrv").stdout)
             result = self.build("dependency-prefetch", "dependencies", check=False)
@@ -243,28 +274,47 @@ def main():
     directory.mkdir(mode=0o700, exist_ok=True)
     driver = Driver(directory)
     try:
+        selected_phase = json.loads(
+            Path(os.environ["GITHUB_EVENT_PATH"]).read_text()
+        )["inputs"]["nix_source_phase"] if phase == "install" else phase
+        budget = DIAGNOSTIC_BUDGET if selected_phase == "diagnostic" else SOURCE_PHASE_BUDGET
+        deadline_path = directory / "phase-deadline"
+        if phase == "install":
+            with deadline_path.open("x") as output:
+                output.write(str(time.monotonic() + budget))
+        # Both Actions steps share one deadline; even another install cannot reset it.
+        driver.deadline = float(deadline_path.read_text())
+        require(0 < driver.deadline - time.monotonic() <= budget,
+                "missing or expired source phase deadline")
         head = driver.command(f"{phase}-driver-head", ["git", "rev-parse", "HEAD"]).stdout.decode().strip()
         require(head == os.environ["GITHUB_SHA"], "checkout does not match the dispatch SHA")
         require(not driver.command(f"{phase}-driver-status", ["git", "status", "--porcelain"]).stdout,
                 "driver checkout must be clean")
         print(json.dumps({"driverCommit": head, "phase": phase, "system": driver.system}), flush=True)
-        driver.install() if phase == "install" else driver.native(phase)
-    except Exception as error:
-        with (directory / f"{driver.stage}.failure").open("w") as output:
-            traceback.print_exc(file=output)
-        stderr = directory / f"{driver.stage}.stderr"
-        print(json.dumps({
-            "result": "BLOCKED", "stage": driver.stage, "exception": type(error).__name__,
-            "exit": getattr(error, "returncode", 1),
-            "diagnostic": failure_diagnostic(error, stderr.read_bytes() if stderr.exists() else b""),
-        }), flush=True)
+        if phase == "install":
+            driver.install(timeout=180 if selected_phase == "diagnostic" else 3600)
+        else:
+            driver.native(phase)
+    except (Exception, KeyboardInterrupt) as error:
+        with uninterrupted_cleanup():
+            with (directory / f"{driver.stage}.failure").open("w") as output:
+                traceback.print_exc(file=output)
+            stderr = directory / f"{driver.stage}.stderr"
+            print(json.dumps({
+                "result": "BLOCKED", "stage": driver.stage, "exception": type(error).__name__,
+                "exit": getattr(error, "returncode", 1),
+                "diagnostic": failure_diagnostic(error, stderr.read_bytes() if stderr.exists() else b""),
+                **({"cleanupException": "PermissionError"} if isinstance(error.__cause__, PermissionError) else {}),
+            }), flush=True)
         return 1
     return 0
 
 
 if __name__ == "__main__":
     def interrupted(signum, frame):
+        ignore_cancellation()
         raise RuntimeError("hosted driver interrupted")
 
+    signal.signal(signal.SIGINT, interrupted)
     signal.signal(signal.SIGTERM, interrupted)
     sys.exit(main())

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve interrupted Nix qualification output and stage receipts with shared phase deadlines; add a bounded metadata/dependency dry-run diagnostic phase without package builds or uploads.
+
 - Verify selected public UI file inventory and served postbuild root/nested files during source-only Nix qualification.
 
 - Add guarded, source-only Nix package qualification on disposable Linux and macOS runners, with separate dependency hash discovery and no cache or artifact uploads.
