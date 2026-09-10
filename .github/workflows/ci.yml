@@ -5,12 +5,19 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      nix_source_phase:
+        description: "One-off isolated source qualification (no promotion)"
+        type: choice
+        default: "off"
+        options: ["off", "prefetch", "qualify"]
 
 permissions:
   contents: read
 
 jobs:
   validate:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.nix_source_phase == 'off' }}
     strategy:
       fail-fast: false
       matrix:
@@ -110,3 +117,51 @@ jobs:
         run: |
           printf 'release action round-trip proof\n' | diff - "$RUNNER_TEMP/action-proof-downloaded/proof.txt"
           echo "Cache and artifact round trips passed."
+
+  nix-source-qualification:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'openclaw/releases' &&
+      (inputs.nix_source_phase == 'prefetch' || inputs.nix_source_phase == 'qualify') &&
+      github.ref == 'refs/heads/test/nix-source-qualification-driver-20260910' &&
+      github.actor == 'vincentkoc' && github.triggering_actor == 'vincentkoc'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            system: x86_64-linux
+          - os: macos-26
+            system: aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      NIX_QUALIFIER_SYSTEM: ${{ matrix.system }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Checkout exact public driver without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            git init .
+            git remote add origin https://github.com/openclaw/releases.git
+            git -c credential.helper= fetch --depth=1 origin "$GITHUB_SHA"
+            git checkout --detach FETCH_HEAD
+            test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+            test -z "$(git status --porcelain)"
+          } >"$RUNNER_TEMP/source-driver-checkout.log" 2>&1 || {
+            echo "Exact driver checkout failed; no qualification."
+            exit 1
+          }
+
+      - name: Install isolated native Nix
+        run: python3 scripts/nix-source-qualification/driver.py install
+
+      - name: Run approved source-only phase
+        env:
+          SOURCE_PHASE: ${{ inputs.nix_source_phase }}
+        run: python3 scripts/nix-source-qualification/driver.py "$SOURCE_PHASE"

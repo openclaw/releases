@@ -219,6 +219,29 @@ gh workflow run openclaw-release-evidence-from-full-validation.yml \
   -f package_spec=openclaw@2026.4.24
 ```
 
+## Nix Qualification
+
+The CI workflow's `nix_source_phase` dispatch input is restricted to the reviewed
+qualification branch and actor. `prefetch` records the exact source archive hash
+and classifies the selected package's fixed-output dependency hash mismatch on
+each native system. It is not package proof. After independent review, freeze
+both systems' real hashes in `scripts/nix-source-qualification/hashes.json`;
+`qualify` refuses missing or placeholder hashes.
+
+Qualification builds the selected source through Home Manager's `gatewayPath`
+and actual `home.packages`, then verifies one isolated generation, package
+contents, Control UI assets, CLI exports, real packaged plugin CLI/RPC actions,
+and supervisor cleanup. The ownership harness uses the selected patched source
+and exact production dependencies from the installed package after pruning,
+without a second dependency installation. It does not migrate an existing
+installation or change pins, tags, releases, or deployment state. No local Nix
+execution is supported.
+The source dispatch skips normal CI's cache/artifact round-trip job; native jobs
+upload neither caches nor artifacts. Raw output stays in disposable runner
+scratch; only closed qualification receipts are printed.
+Failures include bounded, scrubbed diagnostics. The macOS lane qualifies
+macOS 26 on Apple Silicon, not every Darwin release.
+
 ## Storage Policy
 
 Store only release summaries, normalized run metadata, artifact metadata, timing
