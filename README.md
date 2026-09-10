@@ -242,6 +242,12 @@ scratch; only closed qualification receipts are printed.
 Failures include bounded, scrubbed diagnostics. The macOS lane qualifies
 macOS 26 on Apple Silicon, not every Darwin release.
 
+Control UI proof checks the selected source's public-file inventory for installed
+existence, then compares served identity bytes with installed postbuild files,
+including root files and `asset-manifest.json`. The document is compared
+structurally; source maps and directly unserved compression sidecars are excluded
+from HTTP parity. This does not independently prove Vite's public-file transforms.
+
 ## Storage Policy
 
 Store only release summaries, normalized run metadata, artifact metadata, timing

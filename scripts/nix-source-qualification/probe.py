@@ -11,7 +11,7 @@ import signal
 import sys
 import time
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from service import Service, UNIT, run
 
@@ -109,6 +109,7 @@ class EntryAssets(HTMLParser):
 def verify_ui(root):
     # Bypass ambient HTTP proxies; compare served bytes with the actual output.
     client = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    client.addheaders = [("Accept-Encoding", "identity")]
     ui = root / "dist/control-ui"
     manifest = json.loads((ui / "asset-manifest.json").read_text())
     assets = [entry["path"] for entry in manifest["assets"]]
@@ -122,12 +123,13 @@ def verify_ui(root):
     expected = EntryAssets((ui / "index.html").read_text()).assets
     if not expected or served != expected:
         raise RuntimeError("served Control UI entry points differ from the package")
-    # The gateway rewrites document attributes/URLs; sidecars are negotiated,
-    # never directly served. Compare every identity asset and root entry point.
-    for name in sorted(set(assets) | expected):
-        if name.endswith((".br", ".gz")):
+    # Index is compared structurally above. Include public/root output omitted
+    # by the assets-only manifest; maps and negotiated sidecars are not direct proof.
+    installed = {file.relative_to(ui).as_posix() for file in ui.rglob("*") if file.is_file()}
+    for name in sorted(installed | expected):
+        if name == "index.html" or name.endswith((".map", ".br", ".gz")):
             continue
-        with client.open(f"http://127.0.0.1:{PORT}/{name}", timeout=10) as response:
+        with client.open(f"http://127.0.0.1:{PORT}/{quote(name)}", timeout=10) as response:
             if response.status != 200 or response.read() != (ui / name).read_bytes():
                 raise RuntimeError("served Control UI differs from the packaged artifact")
 

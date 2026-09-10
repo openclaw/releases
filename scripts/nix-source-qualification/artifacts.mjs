@@ -56,14 +56,17 @@ const uiManifest = readJson("dist/control-ui/asset-manifest.json");
 assert.equal(uiManifest.version, 1);
 assert.ok(uiManifest.assets.length > 0);
 // The selected Vite producer inventories assets/ only, excluding source maps.
-const assetsRoot = path.join(root, "dist/control-ui/assets");
-const inventory = fs
-  .readdirSync(assetsRoot, { recursive: true, withFileTypes: true })
-  .filter((entry) => !entry.isDirectory() && !entry.name.endsWith(".map"))
-  .map((entry) => {
-    assert.ok(entry.isFile() && !entry.isSymbolicLink(), "unsafe Control UI asset");
-    return `assets/${path.relative(assetsRoot, path.join(entry.parentPath, entry.name))}`;
-  });
+const eligibleFiles = (directory) =>
+  fs
+    .readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => !entry.isDirectory() && !entry.name.endsWith(".map"))
+    .map((entry) => {
+      assert.ok(entry.isFile() && !entry.isSymbolicLink(), "unsafe Control UI asset");
+      return path.relative(directory, path.join(entry.parentPath, entry.name));
+    });
+const inventory = eligibleFiles(path.join(root, "dist/control-ui/assets")).map(
+  (file) => `assets/${file}`,
+);
 assert.deepEqual(
   uiManifest.assets.map((entry) => entry.path).sort(),
   inventory.sort(),
@@ -79,6 +82,10 @@ for (const asset of uiManifest.assets) {
 assert.equal(generation.digest("hex"), uiManifest.generation);
 requireFile("./dist/control-ui/index.html");
 requireFile("./dist/control-ui/sw.js");
+// Vite rewrites some public bytes; source paths bind existence, not transform output.
+for (const file of eligibleFiles(path.join(path.dirname(sourceManifestPath), "ui/public"))) {
+  requireFile(`./dist/control-ui/${file}`);
+}
 for (const directory of ["node_modules", "dist-runtime"]) {
   const base = path.join(root, directory);
   assert.ok(fs.statSync(base).isDirectory());

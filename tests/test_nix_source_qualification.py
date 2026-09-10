@@ -6,12 +6,15 @@ import io
 import json
 import os
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -347,6 +350,82 @@ class IsolationTests(unittest.TestCase):
         self.assertEqual(probe.EntryAssets(packaged).assets, probe.EntryAssets(served).assets)
         self.assertNotEqual(probe.EntryAssets(packaged).assets,
                             probe.EntryAssets(served.replace("app.js", "other.js")).assets)
+
+
+class UiParityTests(unittest.TestCase):
+    def test_public_roots_and_nested_outputs_must_be_served_unchanged(self):
+        document = b'<html><script src="./assets/app.js"></script><link rel="stylesheet" href="./assets/app.css"></html>'
+        files = {
+            "index.html": document,
+            "assets/app.js": b"built script",
+            "assets/app.css": b"built style",
+            "assets/app.js.br": b"negotiated sidecar",
+            "assets/app.js.gz": b"negotiated sidecar",
+            "assets/app.js.map": b"diagnostic",
+            "root.map": b"diagnostic",
+            "sw.js": b"built service worker",
+            "manifest.webmanifest": b'{"name":"built manifest"}',
+            "favicon.ico": b"icon",
+            "fonts/demo.css": b"built font stylesheet",
+            "fonts/demo.woff2": b"font bytes",
+            "provider-icons/ATTRIBUTION.md": b"public attribution",
+            "asset-manifest.json": json.dumps({"assets": [
+                {"path": name} for name in
+                ("assets/app.js", "assets/app.css", "assets/app.js.br", "assets/app.js.gz")
+            ]}).encode(),
+        }
+        served_files = {name: body for name, body in files.items()
+                        if name != "index.html" and not name.endswith((".map", ".br", ".gz"))}
+        served_files[""] = document.replace(b"<html>", b'<html data-runtime="fixture">').replace(b"./assets/", b"/assets/")
+        requests = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                name = self.path.removeprefix("/")
+                requests.append((name, self.headers.get("Accept-Encoding")))
+                body = served_files.get(name)
+                self.send_response(200 if body is not None else 404)
+                self.send_header("Content-Type", "text/html" if name == "" else "application/octet-stream")
+                self.end_headers()
+                if body is not None:
+                    self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        with tempfile.TemporaryDirectory() as td, ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            root = Path(td)
+            for name, body in files.items():
+                target = root / "dist/control-ui" / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(body)
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+            thread.start()
+            try:
+                with patch.object(probe, "PORT", str(server.server_port)):
+                    with self.subTest(complete=True):
+                        probe.verify_ui(root)
+                        self.assertEqual({name for name, _ in requests}, set(served_files))
+                        self.assertTrue(all(encoding == "identity" for _, encoding in requests))
+                    for name in ("sw.js", "manifest.webmanifest", "asset-manifest.json", "favicon.ico",
+                                 "fonts/demo.css", "fonts/demo.woff2", "provider-icons/ATTRIBUTION.md",
+                                 "assets/app.js", "assets/app.css"):
+                        for failure in ("wrong", "missing"):
+                            with self.subTest(name=name, failure=failure):
+                                if failure == "missing":
+                                    served_files.pop(name)
+                                else:
+                                    served_files[name] = b"wrong served bytes"
+                                try:
+                                    with self.assertRaises((RuntimeError, HTTPError)) as failure_result:
+                                        probe.verify_ui(root)
+                                    if isinstance(failure_result.exception, HTTPError):
+                                        failure_result.exception.close()
+                                finally:
+                                    served_files[name] = files[name]
+            finally:
+                server.shutdown()
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
 
 
 if __name__ == "__main__":

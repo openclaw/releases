@@ -85,6 +85,21 @@ for (const [label, change, accepted] of [
     false,
   ],
   [
+    "missing selected public root file",
+    (root) => fs.unlinkSync(path.join(root, "dist/control-ui/favicon.ico")),
+    false,
+  ],
+  [
+    "missing selected nested public file",
+    (root) => fs.unlinkSync(path.join(root, "dist/control-ui/fonts/demo.woff2")),
+    false,
+  ],
+  [
+    "excluded public source map",
+    (root) => fs.writeFileSync(path.join(root, "ui/public/sw.js.map"), "diagnostic\n"),
+    true,
+  ],
+  [
     "dangling pruned dependency",
     (root) => fs.symlinkSync("missing", path.join(root, "node_modules/broken")),
     false,
@@ -132,6 +147,8 @@ function fixture(root) {
   for (const directory of [
     "dist/plugin-sdk",
     "dist/control-ui/assets",
+    "dist/control-ui/fonts",
+    "ui/public/fonts",
     "node_modules",
     "dist-runtime",
   ])
@@ -145,6 +162,17 @@ function fixture(root) {
     "dist/control-ui/sw.js",
   ])
     fs.writeFileSync(path.join(root, file), "fixture\n");
+  // Vite transforms these public files; only their output existence is source-bound.
+  for (const file of [
+    "sw.js",
+    "manifest.webmanifest",
+    "fonts/demo.css",
+    "favicon.ico",
+    "fonts/demo.woff2",
+  ]) {
+    fs.writeFileSync(path.join(root, "ui/public", file), "selected public input\n");
+    fs.writeFileSync(path.join(root, "dist/control-ui", file), "postbuild public output\n");
+  }
   json(root, "package.json", {
     name: "openclaw",
     version: "2026.9.3",
