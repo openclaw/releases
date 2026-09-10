@@ -80,6 +80,20 @@ function readTags(packageName) {
   return Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : parsed;
 }
 
+const READBACK_ATTEMPTS = 10;
+const READBACK_DELAY_MS = 3_000;
+
+// A successful dist-tag mutation can lag the registry's read path by several
+// seconds (observed live on 2026-09-10), so verify convergence within a bounded window.
+async function readConvergedTags(packageName) {
+  for (let attempt = 1; ; attempt++) {
+    const tags = readTags(packageName);
+    if (tags?.latest !== undefined && betaFloorTarget(tags) === undefined) return tags;
+    if (attempt === READBACK_ATTEMPTS) throw new Error("beta floor did not converge after mutation.");
+    await new Promise((resolve) => setTimeout(resolve, READBACK_DELAY_MS));
+  }
+}
+
 function packageNames(sourceDir) {
   const packages = new Set(["openclaw"]);
   const extensions = resolve(sourceDir, "extensions");
@@ -108,7 +122,7 @@ function packageNames(sourceDir) {
   return [...packages].sort();
 }
 
-function main() {
+async function main() {
   if (process.argv.length !== 3)
     throw new Error("Usage: node scripts/release-npm-beta-floor.mjs <source-dir>");
   const failures = [];
@@ -126,10 +140,7 @@ function main() {
         continue;
       }
       npm(["dist-tag", "add", `${packageName}@${target}`, "beta"]);
-      const readback = readTags(packageName);
-      if (!readback || readback.latest === undefined || betaFloorTarget(readback) !== undefined) {
-        throw new Error("beta floor did not converge after mutation.");
-      }
+      await readConvergedTags(packageName);
       console.log(`${packageName}: beta ${tags.beta ?? "<missing>"} -> ${target}`);
     } catch (error) {
       failures.push(`${packageName}: ${error.message}`);
@@ -139,10 +150,8 @@ function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  try {
-    main();
-  } catch (error) {
+  main().catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
-  }
+  });
 }

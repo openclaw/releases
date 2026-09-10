@@ -49,14 +49,21 @@ test("rejects malformed versions and skips packages with no latest", () => {
 
 // Fake npm on PATH: serves dist-tags from a JSON state file in the npm 11 object
 // shape or the npm 12 one-element array shape, records every invocation, and
-// mutates state on `dist-tag add` unless the package is listed as failing or stale.
+// mutates state on `dist-tag add` unless the package is listed as failing or stale,
+// and can serve a fixed number of stale reads after a mutation before converging.
 const FAKE_NPM = `#!/usr/bin/env node
 const fs = require("node:fs");
 const state = JSON.parse(fs.readFileSync(process.env.FAKE_NPM_STATE, "utf8"));
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.FAKE_NPM_CALLS, args.join(" ") + "\\n");
 if (args[0] === "view" && args[2] === "dist-tags" && args.includes("--json")) {
-  const tags = state.registry[args[1]];
+  let tags = state.registry[args[1]];
+  const stale = (state.stale || {})[args[1]];
+  if (stale && stale.remaining > 0) {
+    stale.remaining -= 1;
+    fs.writeFileSync(process.env.FAKE_NPM_STATE, JSON.stringify(state));
+    tags = stale.tags;
+  }
   if (!tags) {
     process.stdout.write(JSON.stringify({ error: { code: "E404", summary: "Not Found" } }));
     process.exit(1);
@@ -72,6 +79,9 @@ if (args[0] === "dist-tag" && args[1] === "add" && args[3] === "beta") {
     process.exit(1);
   }
   if (!(state.staleReadback || []).includes(name)) {
+    if (state.staleReads) {
+      state.stale = { ...(state.stale || {}), [name]: { remaining: state.staleReads, tags: { ...state.registry[name] } } };
+    }
     state.registry[name].beta = args[2].slice(at + 1);
     fs.writeFileSync(process.env.FAKE_NPM_STATE, JSON.stringify(state));
   }
@@ -92,7 +102,14 @@ const OFFICIAL_MANIFESTS = {
   "no-manifest": null,
 };
 
-function runFloor({ registry, shape = "object", failAdd, staleReadback, manifests = OFFICIAL_MANIFESTS }) {
+function runFloor({
+  registry,
+  shape = "object",
+  failAdd,
+  staleReadback,
+  staleReads,
+  manifests = OFFICIAL_MANIFESTS,
+}) {
   const root = mkdtempSync(join(tmpdir(), "beta-floor-"));
   try {
     const bin = join(root, "bin");
@@ -115,7 +132,7 @@ function runFloor({ registry, shape = "object", failAdd, staleReadback, manifest
       );
     }
     const statePath = join(root, "state.json");
-    writeFileSync(statePath, JSON.stringify({ registry, shape, failAdd, staleReadback }));
+    writeFileSync(statePath, JSON.stringify({ registry, shape, failAdd, staleReadback, staleReads }));
     const callsPath = join(root, "calls.log");
     writeFileSync(callsPath, "");
     const result = { code: 0, stdout: "", stderr: "" };
@@ -186,6 +203,23 @@ test("keeps checking every package and reports all failures together", () => {
   assert.equal(result.registry["@openclaw/alpha"].beta, "2026.9.1");
 });
 
+test("waits for a lagging registry read to converge after the mutation", () => {
+  const result = runFloor({
+    staleReads: 2,
+    registry: {
+      openclaw: { latest: "2026.9.3", beta: "2026.9.1" },
+      "@openclaw/alpha": { latest: "2026.9.3", beta: "2026.9.3" },
+    },
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.registry.openclaw.beta, "2026.9.3");
+  assert.match(result.stdout, /^openclaw: beta 2026.9.1 -> 2026.9.3$/m);
+  assert.equal(
+    result.calls.filter((call) => call === "view openclaw dist-tags --json --prefer-online").length,
+    4,
+  );
+});
+
 test("fails when the registry does not converge after the mutation", () => {
   const result = runFloor({
     staleReadback: ["openclaw"],
@@ -197,6 +231,10 @@ test("fails when the registry does not converge after the mutation", () => {
   assert.equal(result.code, 1);
   assert.match(result.stderr, /^openclaw: beta floor did not converge after mutation\.$/m);
   assert.ok(result.calls.includes("dist-tag add openclaw@2026.9.3 beta"));
+  assert.equal(
+    result.calls.filter((call) => call === "view openclaw dist-tags --json --prefer-online").length,
+    11,
+  );
 });
 
 test("rejects an invalid publishable manifest before touching the registry", () => {
