@@ -256,7 +256,7 @@ test("rejects an invalid publishable manifest before touching the registry", () 
 test("rejects extended-stable versions on latest or beta before any tag write", () => {
   for (const packageName of ["openclaw", "@openclaw/alpha"]) {
     for (const channel of ["latest", "beta"]) {
-      for (const version of ["2026.9.33", "2026.9.33-1", "2026.9.33-beta.1", "2026.9.100"]) {
+      for (const version of ["2026.9.33", "2026.9.34", "2026.9.33-beta.1", "2026.9.100"]) {
         const tags = { latest: "2026.9.32", beta: "2026.9.32", [channel]: version };
         assert.throws(() => betaFloorTarget(tags), /patch below 33/);
         const result = runFloor({

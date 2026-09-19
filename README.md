@@ -62,9 +62,10 @@ gh workflow run openclaw-npm-dist-tags.yml --repo openclaw/releases --ref main \
 The action verifies that the Git tag exists in `openclaw/openclaw` and that the
 exact `openclaw` version is already published on the public npm registry. It
 supports both newer and older published extended-stable final versions with patch
-`33` or higher, including correction releases. Regular stable/beta promotion and
-sync reject patch `33` or higher, including the scheduled beta floor. Choosing an older version performs a rollback through the same
-promotion action. Prereleases and floating selectors are rejected; new-publication
+`33` or higher and no suffix. Extended-stable fixes increment the patch (`33`,
+`34`, `35`, and so on); they do not use correction suffixes. Regular stable/beta
+promotion and sync reject patch `33` or higher, including the scheduled beta floor.
+Choosing an older version performs a rollback through the same promotion action. Prereleases and floating selectors are rejected; new-publication
 eligibility rules do not apply to an already-published target; the channel/patch
 boundary still applies.
 

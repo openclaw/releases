@@ -107,7 +107,7 @@ class ExtendedStablePromotionTests(unittest.TestCase):
                     (root / 'summary').read_text() if (root / 'summary').exists() else '')
 
     def test_rollback_and_forward_retag_only_write_extended_stable(self):
-        for tag in ('v2026.6.35', 'v2026.7.33-2', 'v2026.8.34', 'v2026.8.100'):
+        for tag in ('v2026.6.35', 'v2026.8.33', 'v2026.8.34', 'v2026.8.100'):
             for array in (False, True):
                 with self.subTest(tag=tag, array=array):
                     result, state, calls, summary = self.run_workflow(tag, array=array, stale=2, read_errors=1)
@@ -172,7 +172,7 @@ class RegularChannelAdmissionTests(unittest.TestCase):
             job = WORKFLOW.split(f'\n  {mode}:\n', 1)[1].split('\n  sync_stable_dist_tags:', 1)[0]
             for version, allowed in (('2026.9.1', True), ('2026.9.32', True),
                                      ('2026.9.32-1', True), ('2026.9.33', False),
-                                     ('2026.9.33-1', False), ('2026.9.100', False),
+                                     ('2026.9.34', False), ('2026.9.100', False),
                                      ('2026.9.33-beta.1', False)):
                 with self.subTest(mode=mode, version=version), tempfile.TemporaryDirectory() as td:
                     env_file = Path(td) / 'env'
@@ -186,7 +186,7 @@ class RegularChannelAdmissionTests(unittest.TestCase):
     def test_scheduled_sync_rejects_extended_stable_latest_before_git_lookup(self):
         job = WORKFLOW.split('\n  sync_beta_to_stable:\n', 1)[1].split('\n  promote_beta_to_latest:', 1)[0]
         for version, allowed in (('2026.9.32', True), ('2026.9.32-1', True),
-                                 ('2026.9.33', False), ('2026.9.33-1', False),
+                                 ('2026.9.33', False), ('2026.9.34', False),
                                  ('2026.9.100', False), ('2026.9.33-beta.1', False)):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as td:
                 root = Path(td)

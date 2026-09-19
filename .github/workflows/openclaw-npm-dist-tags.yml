@@ -327,8 +327,8 @@ jobs:
           fi
           # Promotion may select a newer or older published extended-stable final version.
           # This moves an existing selector; it does not authorize new publication.
-          if [[ ! "$RELEASE_TAG" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(3[3-9]|[4-9][0-9]|[1-9][0-9]{2,})(-[1-9][0-9]*)?$ ]]; then
-            echo "Extended-stable promotion requires an exact final release tag with patch 33 or higher." >&2
+          if [[ ! "$RELEASE_TAG" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.(3[3-9]|[4-9][0-9]|[1-9][0-9]{2,})$ ]]; then
+            echo "Extended-stable promotion requires an exact final release tag with patch 33 or higher and no suffix." >&2
             exit 1
           fi
           echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
