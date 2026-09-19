@@ -32,8 +32,8 @@ maintenance, and durable release evidence separate from the product source repo.
   `beta` for `openclaw` and every published official plugin is advanced to at
   least its own `latest`; an equal or newer `beta` is preserved. The plugin
   inventory is read as data from `openclaw/openclaw` `main` manifests.
-  Its manual `set_extended_stable` mode moves only the core package's
-  `extended-stable` selector to an existing version, including rollback.
+  Its manual `promote_extended_stable` mode promotes an already-published core version
+  to `extended-stable`, without changing other selectors.
 - `.github/workflows/openclaw-release-evidence.yml` records manually supplied
   release proof runs.
 - `.github/workflows/openclaw-release-evidence-from-full-validation.yml` ingests
@@ -48,22 +48,23 @@ An existing seed feed alone is not valid release output. The preflight uses
 `pnpm release:check` to build and validate package contents once before metadata
 validation; native app packaging retains its own matching runtime build.
 
-### Roll back or retarget npm extended-stable
+### Promote a version to npm extended-stable
 
 In **Actions → OpenClaw NPM Dist-Tag Operations → Run workflow**, choose
-branch `main`, mode `set_extended_stable`, and the exact public release tag.
-For example:
+branch `main`, mode `promote_extended_stable`, and the exact public release tag.
+Replace `vYYYY.M.PATCH` below with that tag:
 
 ```bash
 gh workflow run openclaw-npm-dist-tags.yml --repo openclaw/releases --ref main \
-  -f mode=set_extended_stable -f tag=v2026.6.35
+  -f mode=promote_extended_stable -f tag=vYYYY.M.PATCH
 ```
 
 The action verifies that the Git tag exists in `openclaw/openclaw` and that the
 exact `openclaw` version is already published on the public npm registry. It
-allows older monthly lines and historical regular final/correction versions
-(such as `v2026.7.1-2`), but rejects prereleases and floating selectors. New
-publication eligibility rules do not prevent rollback to an existing release.
+supports both newer and older published final versions, including correction
+releases. Choosing an older version performs a rollback through the same
+promotion action. Prereleases and floating selectors are rejected; new-publication
+eligibility rules do not apply to an already-published target.
 
 It uses this repository's existing `NPM_TOKEN`, writes only
 `openclaw@<version>`'s `extended-stable` dist-tag, and records the previous and
@@ -74,7 +75,7 @@ registry state before another dispatch—do not republish the package.
 
 This does **not** change npm `latest`, `beta`, plugin selectors, Git tags,
 GitHub Releases, or Docker images. It does not invoke the beta-floor job. Docker
-rollback remains the separate `docker-channel-promote.yml` workflow in
+channel promotion remains the separate `docker-channel-promote.yml` workflow in
 `openclaw/openclaw`. Normal workflow dispatch permissions and the main-only
 execution guard apply; no new publication or credentials are required.
 

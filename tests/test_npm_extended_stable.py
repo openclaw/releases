@@ -1,4 +1,4 @@
-"""Run the actual retag workflow shell against an isolated registry fixture."""
+"""Run the actual promotion workflow shell against an isolated registry fixture."""
 import json
 import os
 from pathlib import Path
@@ -8,10 +8,10 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / '.github/workflows/openclaw-npm-dist-tags.yml').read_text()
-JOB = WORKFLOW.split('\n  set_extended_stable:\n', 1)[1]
-STEPS = ('Validate extended-stable retag request',
-         'Verify extended-stable rollback target exists',
-         'Set and verify extended-stable npm tag')
+JOB = WORKFLOW.split('\n  promote_extended_stable:\n', 1)[1]
+STEPS = ('Validate extended-stable promotion request',
+         'Verify extended-stable promotion target exists',
+         'Promote and verify extended-stable npm tag')
 
 
 def script(name):
@@ -63,7 +63,7 @@ else:
 '''
 
 
-class ExtendedStableRetagTests(unittest.TestCase):
+class ExtendedStablePromotionTests(unittest.TestCase):
     def run_workflow(self, tag='v2026.6.35', ref='refs/heads/main', token='fixture-token', **changes):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -157,11 +157,11 @@ class ExtendedStableRetagTests(unittest.TestCase):
         self.assertIn('write may have succeeded', summary)
 
     def test_manual_mode_does_not_trigger_beta_floor(self):
-        self.assertIn('          - set_extended_stable\n', WORKFLOW)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.mode == 'set_extended_stable'", JOB)
+        self.assertIn('          - promote_extended_stable\n', WORKFLOW)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.mode == 'promote_extended_stable'", JOB)
         self.assertIn('group: openclaw-npm-dist-tags\n  cancel-in-progress: false', WORKFLOW)
         floor = WORKFLOW.split('  sync_beta_to_stable:\n', 1)[1].split('    runs-on:', 1)[0]
-        self.assertNotIn('set_extended_stable', floor)
+        self.assertNotIn('promote_extended_stable', floor)
         self.assertNotIn('latest_published', JOB)
 
 
