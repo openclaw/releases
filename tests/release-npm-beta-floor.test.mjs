@@ -132,7 +132,10 @@ function runFloor({
       );
     }
     const statePath = join(root, "state.json");
-    writeFileSync(statePath, JSON.stringify({ registry, shape, failAdd, staleReadback, staleReads }));
+    writeFileSync(
+      statePath,
+      JSON.stringify({ registry, shape, failAdd, staleReadback, staleReads }),
+    );
     const callsPath = join(root, "calls.log");
     writeFileSync(callsPath, "");
     const result = { code: 0, stdout: "", stderr: "" };
@@ -183,7 +186,10 @@ for (const shape of ["object", "array"]) {
       "@openclaw/bravo: no published latest; skipped",
       "openclaw: beta 2026.9.1 -> 2026.9.3",
     ]) {
-      assert.match(result.stdout, new RegExp(`^${line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
+      assert.match(
+        result.stdout,
+        new RegExp(`^${line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"),
+      );
     }
   });
 }
@@ -245,4 +251,29 @@ test("rejects an invalid publishable manifest before touching the registry", () 
   assert.equal(result.code, 1);
   assert.match(result.stderr, /^Invalid publishable plugin manifest: alpha$/m);
   assert.deepEqual(result.calls, []);
+});
+
+test("rejects extended-stable versions on latest or beta before any tag write", () => {
+  for (const packageName of ["openclaw", "@openclaw/alpha"]) {
+    for (const channel of ["latest", "beta"]) {
+      for (const version of ["2026.9.33", "2026.9.33-1", "2026.9.33-beta.1", "2026.9.100"]) {
+        const tags = { latest: "2026.9.32", beta: "2026.9.32", [channel]: version };
+        assert.throws(() => betaFloorTarget(tags), /patch below 33/);
+        const result = runFloor({
+          registry: {
+            openclaw: { latest: "2026.9.32", beta: "2026.9.32" },
+            [packageName]: tags,
+          },
+        });
+        assert.equal(result.code, 1, `${packageName} ${channel} ${version}`);
+        assert.match(result.stderr, /patch below 33/);
+        assert.deepEqual(
+          result.calls.filter((call) => call.startsWith("dist-tag ")),
+          [],
+        );
+      }
+    }
+  }
+  assert.equal(betaFloorTarget({ latest: "2026.9.32", beta: "2026.9.31" }), "2026.9.32");
+  assert.equal(betaFloorTarget({ latest: "2026.9.32-1", beta: "2026.9.31" }), "2026.9.32-1");
 });

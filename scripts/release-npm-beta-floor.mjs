@@ -44,7 +44,13 @@ export function betaFloorTarget(tags) {
     throw new Error("npm dist-tags must be an object.");
   }
   if (tags.latest === undefined) return undefined;
-  parseVersion(tags.latest);
+  // Never propagate an extended-stable train into either regular channel,
+  // including plugin selectors and a latest value changed after workflow admission.
+  for (const channel of ["latest", "beta"]) {
+    if (tags[channel] !== undefined && parseVersion(tags[channel]).core[2] >= 33n) {
+      throw new Error(`npm ${channel} must use a release with patch below 33.`);
+    }
+  }
   return tags.beta === undefined || compareVersions(tags.beta, tags.latest) < 0
     ? tags.latest
     : undefined;
@@ -89,7 +95,8 @@ async function readConvergedTags(packageName) {
   for (let attempt = 1; ; attempt++) {
     const tags = readTags(packageName);
     if (tags?.latest !== undefined && betaFloorTarget(tags) === undefined) return tags;
-    if (attempt === READBACK_ATTEMPTS) throw new Error("beta floor did not converge after mutation.");
+    if (attempt === READBACK_ATTEMPTS)
+      throw new Error("beta floor did not converge after mutation.");
     await new Promise((resolve) => setTimeout(resolve, READBACK_DELAY_MS));
   }
 }
