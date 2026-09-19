@@ -34,6 +34,7 @@ class PretagSourceTests(unittest.TestCase):
                 git('config', 'user.name', 'Fixture')
                 git('config', 'user.email', 'fixture@example.invalid')
                 git('config', 'commit.gpgsign', 'false')
+                git('config', 'tag.gpgsign', 'false')
                 (repo / 'package.json').write_text(json.dumps({
                     'name': changes.get('name', 'openclaw'), 'version': changes.get('version', '2026.9.3')}))
                 # This marker must never become checked-out source before admission succeeds.

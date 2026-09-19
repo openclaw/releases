@@ -155,8 +155,8 @@ jobs:
           swift_test_args=(--package-path apps/macos --build-system native --enable-code-coverage)
           swift build "${swift_test_args[@]}" --build-tests
           swift_test_args+=(--skip-build --no-parallel)
-          node scripts/test-macos-native.mts default "${swift_test_args[@]}" --skip AppStateIsolationTests
-          node scripts/test-macos-native.mts named "${swift_test_args[@]}" --filter AppStateIsolationTests
+          node scripts/test-macos-native.mts default "${swift_test_args[@]}" --skip "AppStateIsolationTests|ProfileChatPreferencesTests"
+          node scripts/test-macos-native.mts named "${swift_test_args[@]}" --filter "AppStateIsolationTests|ProfileChatPreferencesTests"
 
       - name: Capture validation provenance
         id: validation_provenance

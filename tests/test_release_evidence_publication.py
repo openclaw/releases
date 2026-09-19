@@ -33,6 +33,7 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                     git(root, 'clone', str(remote), str(worker))
                     git(worker, 'config', 'user.name', 'Fixture')
                     git(worker, 'config', 'user.email', 'fixture@example.invalid')
+                    git(worker, 'config', 'commit.gpgsign', 'false')
                     evidence = worker / 'evidence/2026.9.1'
                     evidence.mkdir(parents=True)
                     (evidence / 'release-evidence.json').write_text('{"generation":1}\n')
@@ -43,6 +44,7 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                     git(root, 'clone', str(remote), str(other))
                     git(other, 'config', 'user.name', 'Fixture')
                     git(other, 'config', 'user.email', 'fixture@example.invalid')
+                    git(other, 'config', 'commit.gpgsign', 'false')
                     if scenario not in ('noop', 'stale-noop'):
                         (evidence / 'release-evidence.json').write_text('{"generation":2}\n')
                     if scenario == 'missing':

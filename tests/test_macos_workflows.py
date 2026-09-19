@@ -237,8 +237,19 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                     self.assertIn('--skip-build', call['args'])
                     self.assertIn('--no-parallel', call['args'])
                 if len(calls) == 3:
-                    self.assertEqual(calls[1]['args'][-2:], ['--skip', 'AppStateIsolationTests'])
-                    self.assertEqual(calls[2]['args'][-2:], ['--filter', 'AppStateIsolationTests'])
+                    self.assertEqual(calls[1]['args'][-2], '--skip')
+                    self.assertEqual(calls[2]['args'][-2], '--filter')
+                    # Launch profile is immutable: each fixture must run exactly once
+                    # in the process that owns its defaults and lifecycle semantics.
+                    for test, profile in [
+                        ('AppStateIsolationTests/previewConstructor', 'named'),
+                        ('ProfileChatPreferencesTests/testFullChatPreferencesBelongToNamedProfile', 'named'),
+                        ('QuickChatCatalogPresentationTests/testRenderedPicker', 'default'),
+                        ('WebChatModelPickerTests/testModelPicker', 'default'),
+                    ]:
+                        selected = [call['phase'] for call in calls[1:]
+                                    if bool(re.search(call['args'][-1], test)) == (call['phase'] == 'named')]
+                        self.assertEqual(selected, [profile], test)
 
     def test_preparation_needs_tag_but_release_page_only_for_promotion(self):
         publish = workflow('openclaw-macos-publish.yml')
