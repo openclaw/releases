@@ -12,8 +12,9 @@ on:
           - sync_beta_to_stable
           - promote_beta_to_latest
           - sync_stable_dist_tags
+          - set_extended_stable
       tag:
-        description: Stable OpenClaw release tag for manual promotion and manual dist-tag sync (for example v2026.4.14 or v2026.4.14-1)
+        description: Exact published final OpenClaw tag for promotion, sync, or extended-stable rollback (for example v2026.6.35)
         required: false
         type: string
   schedule:
@@ -306,3 +307,110 @@ jobs:
             echo "- Version: \`${RELEASE_VERSION}\`"
             echo "- Result: npm \`latest\` updated; the beta floor runs next"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  set_extended_stable:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'set_extended_stable' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Validate extended-stable retag request
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$WORKFLOW_REF" != refs/heads/main ]]; then
+            echo "Extended-stable retagging must be dispatched from main." >&2
+            exit 1
+          fi
+          # Rollback may select an older monthly line or a historical regular final.
+          # This moves an existing selector; it does not authorize new publication.
+          if [[ ! "$RELEASE_TAG" =~ ^v[1-9][0-9]{3}\.([1-9]|1[0-2])\.[1-9][0-9]*(-[1-9][0-9]*)?$ ]]; then
+            echo "Extended-stable retagging requires an exact final release tag." >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify extended-stable rollback target exists
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          git ls-remote --exit-code --refs "https://github.com/${OPENCLAW_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}" >/dev/null
+          npm view "openclaw@${RELEASE_VERSION}" version --json --prefer-online \
+            --registry=https://registry.npmjs.org/ | node -e '
+              let input = "";
+              process.stdin.setEncoding("utf8");
+              process.stdin.on("data", chunk => input += chunk);
+              process.stdin.on("end", () => {
+                const raw = JSON.parse(input);
+                const version = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
+                if (version !== process.env.RELEASE_VERSION) {
+                  throw new Error("Exact rollback version is not published on npm.");
+                }
+              });'
+
+      - name: Set and verify extended-stable npm tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "Missing NPM_TOKEN secret." >&2
+            exit 1
+          fi
+          npm_userconfig="$(mktemp)"
+          trap 'rm -f "$npm_userconfig"' EXIT
+          chmod 0600 "$npm_userconfig"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$npm_userconfig"
+          export NPM_CONFIG_USERCONFIG="$npm_userconfig"
+          export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+          unset NODE_AUTH_TOKEN
+          npm whoami >/dev/null
+          read_selector() {
+            npm view openclaw dist-tags --json --prefer-online --fetch-retries=0 --fetch-timeout=15000 | node -e '
+              let input = "";
+              process.stdin.setEncoding("utf8");
+              process.stdin.on("data", chunk => input += chunk);
+              process.stdin.on("end", () => {
+                const raw = JSON.parse(input);
+                const tags = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
+                if (!tags || typeof tags !== "object" || Array.isArray(tags)) {
+                  throw new Error("Invalid npm dist-tags response.");
+                }
+                const version = tags["extended-stable"];
+                if (version !== undefined && typeof version !== "string") {
+                  throw new Error("Invalid extended-stable selector.");
+                }
+                process.stdout.write(version ?? "<unset>");
+              });'
+          }
+          previous="$(read_selector)"
+          printf '### npm extended-stable retag\n\n- Previous: `%s`\n- Target: `%s`\n' \
+            "$previous" "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$previous" != "$RELEASE_VERSION" ]]; then
+            # Never retry the write: an error or timeout can follow a successful mutation.
+            if ! npm dist-tag add "openclaw@${RELEASE_VERSION}" extended-stable; then
+              echo '- Result: write failed or unconfirmed; inspect npm before retrying.' >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
+          # Allow five minutes of retry waits for npm read propagation.
+          for ((attempt = 1; attempt <= 61; attempt++)); do
+            if current="$(read_selector)" && [[ "$current" == "$RELEASE_VERSION" ]]; then
+              echo '- Result: verified; latest, beta, and plugin selectors were not written.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if (( attempt < 61 )); then sleep 5; fi
+          done
+          echo '- Result: readback failed; the tag write may have succeeded. Inspect npm before retrying.' >> "$GITHUB_STEP_SUMMARY"
+          echo "Extended-stable readback did not converge. Do not republish the package." >&2
+          exit 1
