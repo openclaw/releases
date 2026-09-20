@@ -32,6 +32,8 @@ maintenance, and durable release evidence separate from the product source repo.
   `beta` for `openclaw` and every published official plugin is advanced to at
   least its own `latest`; an equal or newer `beta` is preserved. The plugin
   inventory is read as data from `openclaw/openclaw` `main` manifests.
+  Its manual `promote_extended_stable` mode promotes an already-published core version
+  to `extended-stable`, without changing other selectors.
 - `.github/workflows/openclaw-release-evidence.yml` records manually supplied
   release proof runs.
 - `.github/workflows/openclaw-release-evidence-from-full-validation.yml` ingests
@@ -45,6 +47,40 @@ byte length, and contain a Sparkle signature before retention and promotion.
 An existing seed feed alone is not valid release output. The preflight uses
 `pnpm release:check` to build and validate package contents once before metadata
 validation; native app packaging retains its own matching runtime build.
+
+### Promote a version to npm extended-stable
+
+In **Actions → OpenClaw NPM Dist-Tag Operations → Run workflow**, choose
+branch `main`, mode `promote_extended_stable`, and the exact public release tag.
+Replace `vYYYY.M.PATCH` below with that tag:
+
+```bash
+gh workflow run openclaw-npm-dist-tags.yml --repo openclaw/releases --ref main \
+  -f mode=promote_extended_stable -f tag=vYYYY.M.PATCH
+```
+
+The action verifies that the Git tag exists in `openclaw/openclaw` and that the
+exact `openclaw` version is already published on the public npm registry. It
+supports both newer and older published extended-stable final versions with patch
+`33` or higher and no suffix. Extended-stable fixes increment the patch (`33`,
+`34`, `35`, and so on); they do not use correction suffixes. Regular stable/beta
+promotion and sync reject patch `33` or higher, including the scheduled beta floor.
+Choosing an older version performs a rollback through the same promotion action. Prereleases and floating selectors are rejected; new-publication
+eligibility rules do not apply to an already-published target; the channel/patch
+boundary still applies.
+
+It uses this repository's existing `NPM_TOKEN`, writes only
+`openclaw@<version>`'s `extended-stable` dist-tag, and records the previous and
+requested versions in the run summary. An already-correct selector is a no-op.
+Readback retries allow five minutes of wait time; the write is never retried
+automatically. If the write is unconfirmed or readback fails, inspect the actual
+registry state before another dispatch—do not republish the package.
+
+This does **not** change npm `latest`, `beta`, plugin selectors, Git tags,
+GitHub Releases, or Docker images. It does not invoke the beta-floor job. Docker
+channel promotion remains the separate `docker-channel-promote.yml` workflow in
+`openclaw/openclaw`. Normal workflow dispatch permissions and the main-only
+execution guard apply; no new publication or credentials are required.
 
 ### Prepare signed macOS artifacts before tagging
 
