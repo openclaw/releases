@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow macOS notarization recovery for arm64, x86_64, or all variants while preserving existing universal recovery and checkpoint identity checks.
+
 - Bind macOS provenance to each artifact variant before signing, and preserve the universal appcast filename without a redundant rename.
 
 - Run macOS chat preference isolation tests in the named-profile validation pass, matching product CI and preserving one execution per test.
