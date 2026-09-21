@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bind macOS provenance to each artifact variant before signing, and preserve the universal appcast filename without a redundant rename.
+
 - Run macOS chat preference isolation tests in the named-profile validation pass, matching product CI and preserving one execution per test.
 
 - Enforce the npm beta floor for `openclaw` and every published official plugin: run it after any successful `latest` promotion or sync, on manual dispatch, and daily; advance a missing or older `beta` to `latest`, preserve an equal or newer one, and stop overwriting `beta` unconditionally during stable dist-tag sync.
