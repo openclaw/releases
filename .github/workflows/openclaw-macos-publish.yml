@@ -102,6 +102,7 @@ jobs:
       - name: Validate tag input format
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          ARTIFACT_VARIANT: ${{ matrix.variant }}
         run: |
           set -euo pipefail
           if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*((-beta\.[1-9][0-9]*)|(-[1-9][0-9]*))?$ ]]; then
@@ -172,6 +173,25 @@ jobs:
     needs: prepare
     if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
     runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: universal
+            build_archs: all
+            artifact_suffix: ""
+            appcast_name: appcast.xml
+            feed_url: https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml
+          - variant: arm64
+            build_archs: arm64
+            artifact_suffix: -arm64
+            appcast_name: appcast-arm64.xml
+            feed_url: https://raw.githubusercontent.com/openclaw/openclaw/main/appcast-arm64.xml
+          - variant: x86_64
+            build_archs: x86_64
+            artifact_suffix: -x86_64
+            appcast_name: appcast-x86_64.xml
+            feed_url: https://raw.githubusercontent.com/openclaw/openclaw/main/appcast-x86_64.xml
     # Release authorization covers signing and notarization; mac-release owns
     # the secrets and main-only deployment policy without a second approval.
     environment: mac-release
@@ -226,7 +246,7 @@ jobs:
           git -C source checkout --detach "refs/remotes/origin/${SOURCE_REF}"
 
       - name: Checkout submodules (retry)
-        if: ${{ inputs.resume_notarization_run_id == '' }}
+        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
         working-directory: source
         run: |
           set -euo pipefail
@@ -241,7 +261,7 @@ jobs:
           exit 1
 
       - name: Setup pnpm
-        if: ${{ inputs.resume_notarization_run_id == '' }}
+        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
         uses: pnpm/action-setup@v6
         with:
           package_json_file: source/package.json
@@ -251,18 +271,18 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: ${{ inputs.resume_notarization_run_id == '' && 'pnpm' || '' }}
+          cache: ${{ (inputs.resume_notarization_run_id == '' || matrix.variant != 'universal') && 'pnpm' || '' }}
           cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install dependencies
-        if: ${{ inputs.resume_notarization_run_id == '' }}
+        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
         working-directory: source
         env:
           CI: "true"
         run: pnpm install --frozen-lockfile
 
       - name: Prepare Apple Mermaid assets
-        if: ${{ inputs.resume_notarization_run_id == '' }}
+        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
         working-directory: source
         run: |
           set -euo pipefail
@@ -281,7 +301,7 @@ jobs:
           swift --version
 
       - name: Cache SwiftPM
-        if: ${{ inputs.resume_notarization_run_id == '' }}
+        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
         uses: actions/cache@v6
         with:
           path: ~/Library/Caches/org.swift.swiftpm
@@ -310,7 +330,7 @@ jobs:
           fi
 
       - name: Verify notarization checkpoint producer
-        if: ${{ inputs.resume_notarization_run_id != '' }}
+        if: ${{ inputs.resume_notarization_run_id != '' && matrix.variant == 'universal' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
@@ -336,7 +356,7 @@ jobs:
           NODE
 
       - name: Download notarization checkpoint
-        if: ${{ inputs.resume_notarization_run_id != '' }}
+        if: ${{ inputs.resume_notarization_run_id != '' && matrix.variant == 'universal' }}
         uses: actions/download-artifact@v8
         with:
           name: macos-notarization-${{ inputs.tag }}-${{ inputs.resume_notarization_run_id }}-${{ inputs.resume_notarization_run_attempt }}
@@ -347,7 +367,7 @@ jobs:
 
       - name: Verify notarization checkpoint release binding
         id: recovery_verified
-        if: ${{ inputs.resume_notarization_run_id != '' }}
+        if: ${{ inputs.resume_notarization_run_id != '' && matrix.variant == 'universal' }}
         working-directory: source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -389,7 +409,7 @@ jobs:
             "$(git rev-parse HEAD)" "$(node -p "require('./package.json').version")" >/dev/null
 
       - name: Release packaging guards
-        if: ${{ inputs.resume_notarization_run_id == '' }}
+        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=4096
@@ -400,7 +420,7 @@ jobs:
           pnpm check:host-env-policy:swift
 
       - name: Build and verify release contents
-        if: ${{ inputs.resume_notarization_run_id == '' }}
+        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=8192
@@ -408,7 +428,7 @@ jobs:
         run: pnpm release:check
 
       - name: Validate release tag and package metadata
-        if: ${{ inputs.resume_notarization_run_id == '' }}
+        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
         working-directory: source
         env:
           ALLOW_LATE_CALVER_RECOVERY: ${{ inputs.allow_late_calver_recovery }}
@@ -454,8 +474,8 @@ jobs:
           ARTIFACT_DIR="$RUNNER_TEMP/openclaw-macos-preflight"
           rm -rf "$ARTIFACT_DIR"
           mkdir -p "$ARTIFACT_DIR"
-          printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag.txt"
-          printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha.txt"
+          printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag-${ARTIFACT_VARIANT}.txt"
+          printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha-${ARTIFACT_VARIANT}.txt"
           echo "dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Package macOS smoke-test artifacts
@@ -465,13 +485,14 @@ jobs:
           APP_VERSION: ${{ steps.package_version.outputs.value }}
           ALLOW_ADHOC_SIGNING: "1"
           BUNDLE_ID: ai.openclaw.mac
+          BUILD_ARCHS: ${{ matrix.build_archs }}
           BUILD_CONFIG: release
           CODESIGN_TIMESTAMP: "off"
           SKIP_NOTARIZE: "1"
           SKIP_PNPM_INSTALL: "1"
           SKIP_TSC: "1"
           SKIP_UI_BUILD: "1"
-          SPARKLE_FEED_URL: ${{ env.SPARKLE_FEED_URL }}
+          SPARKLE_FEED_URL: ${{ matrix.feed_url }}
         run: scripts/package-mac-dist.sh
 
       - name: Import Developer ID certificate
@@ -557,24 +578,41 @@ jobs:
         env:
           APP_VERSION: ${{ steps.package_version.outputs.value }}
           BUNDLE_ID: ai.openclaw.mac
+          BUILD_ARCHS: ${{ matrix.build_archs }}
           BUILD_CONFIG: release
           SIGN_IDENTITY: ${{ env.SIGN_IDENTITY }}
           SKIP_PNPM_INSTALL: "1"
           SKIP_TSC: "1"
           SKIP_UI_BUILD: "1"
-          SPARKLE_FEED_URL: ${{ env.SPARKLE_FEED_URL }}
+          SPARKLE_FEED_URL: ${{ matrix.feed_url }}
           RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
+          ARTIFACT_VARIANT: ${{ matrix.variant }}
         run: |
           set -euo pipefail
-          if [[ -n "$RESUME_RUN_ID" ]]; then
+          if [[ -n "$RESUME_RUN_ID" && "$ARTIFACT_VARIANT" == "universal" ]]; then
             scripts/package-mac-dist.sh --resume-notarization
           else
             scripts/package-mac-dist.sh
           fi
 
+      - name: Name architecture-specific artifacts
+        working-directory: source
+        env:
+          APP_VERSION: ${{ steps.package_version.outputs.value }}
+          ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
+        run: |
+          set -euo pipefail
+          [[ -n "$ARTIFACT_SUFFIX" ]] || exit 0
+          for extension in zip dmg dSYM.zip; do
+            source="dist/OpenClaw-${APP_VERSION}.${extension}"
+            destination="dist/OpenClaw-${APP_VERSION}${ARTIFACT_SUFFIX}.${extension}"
+            [[ -f "$source" ]] || { echo "Missing packaged output: $source" >&2; exit 1; }
+            mv "$source" "$destination"
+          done
+
       - name: Preserve notarization recovery checkpoint
         id: recovery_checkpoint
-        if: ${{ always() && !inputs.smoke_test_only && steps.package_release.outcome != 'skipped' && (inputs.resume_notarization_run_id == '' || steps.recovery_verified.outcome == 'success') && hashFiles('source/dist/macos-notarization-recovery/manifest.json') != '' }}
+        if: ${{ always() && !inputs.smoke_test_only && steps.package_release.outcome != 'skipped' && (matrix.variant != 'universal' || inputs.resume_notarization_run_id == '' || steps.recovery_verified.outcome == 'success') && hashFiles('source/dist/macos-notarization-recovery/manifest.json') != '' }}
         working-directory: source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -608,7 +646,7 @@ jobs:
           python3 scripts/lib/mac-notarization-recovery.py seal "$checkpoint"
 
       - name: Upload notarization recovery checkpoint
-        if: ${{ always() && steps.recovery_checkpoint.outcome == 'success' }}
+        if: ${{ always() && matrix.variant == 'universal' && steps.recovery_checkpoint.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: macos-notarization-${{ inputs.tag }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -616,8 +654,17 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload architecture-specific notarization recovery checkpoint
+        if: ${{ always() && matrix.variant != 'universal' && steps.recovery_checkpoint.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-notarization-${{ inputs.tag }}-${{ matrix.variant }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: source/dist/macos-notarization-recovery
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Restore checkpointed Sparkle tools
-        if: ${{ inputs.resume_notarization_run_id != '' }}
+        if: ${{ inputs.resume_notarization_run_id != '' && matrix.variant == 'universal' }}
         working-directory: source
         run: |
           set -euo pipefail
@@ -643,11 +690,13 @@ jobs:
         if: ${{ !inputs.smoke_test_only }}
         env:
           APP_VERSION: ${{ steps.package_version.outputs.value }}
+          ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
+          EXPECTED_ARCHS: ${{ matrix.build_archs }}
           EXPECTED_BUNDLE_ID: ai.openclaw.mac
         run: |
           set -euo pipefail
-          ZIP_PATH="source/dist/OpenClaw-${APP_VERSION}.zip"
-          DMG_PATH="source/dist/OpenClaw-${APP_VERSION}.dmg"
+          ZIP_PATH="source/dist/OpenClaw-${APP_VERSION}${ARTIFACT_SUFFIX}.zip"
+          DMG_PATH="source/dist/OpenClaw-${APP_VERSION}${ARTIFACT_SUFFIX}.dmg"
           VERIFY_ROOT="$(mktemp -d)"
           trap 'rm -rf "$VERIFY_ROOT"' EXIT
 
@@ -664,6 +713,27 @@ jobs:
             echo "Unexpected bundle identifier: ${APP_BUNDLE_ID}" >&2
             exit 1
           }
+          ACTUAL_ARCHS="$(lipo -archs "$APP_PATH/Contents/MacOS/OpenClaw")"
+          CUA_ARCHS="$(lipo -archs "$APP_PATH/Contents/Resources/cua-driver")"
+          if [[ "$EXPECTED_ARCHS" == "all" ]]; then
+            [[ "$ACTUAL_ARCHS" == *arm64* && "$ACTUAL_ARCHS" == *x86_64* ]] || {
+              echo "Universal app is missing an architecture: ${ACTUAL_ARCHS}" >&2
+              exit 1
+            }
+            [[ "$CUA_ARCHS" == *arm64* && "$CUA_ARCHS" == *x86_64* ]] || {
+              echo "Universal CUA driver is missing an architecture: ${CUA_ARCHS}" >&2
+              exit 1
+            }
+          else
+            [[ "$ACTUAL_ARCHS" == "$EXPECTED_ARCHS" ]] || {
+              echo "Thin app architecture mismatch: expected ${EXPECTED_ARCHS}, got ${ACTUAL_ARCHS}" >&2
+              exit 1
+            }
+            [[ "$CUA_ARCHS" == "$EXPECTED_ARCHS" ]] || {
+              echo "Thin CUA architecture mismatch: expected ${EXPECTED_ARCHS}, got ${CUA_ARCHS}" >&2
+              exit 1
+            }
+          fi
           spctl -a -vv -t exec "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
 
@@ -678,11 +748,11 @@ jobs:
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
         run: |
           set -euo pipefail
-          if curl -fsSL "$SPARKLE_FEED_URL" -o source/appcast.xml; then
-            echo "Seeded appcast from $SPARKLE_FEED_URL."
+          if curl -fsSL "${{ matrix.feed_url }}" -o source/appcast.xml; then
+            echo "Seeded appcast from ${{ matrix.feed_url }}."
           else
             rm -f source/appcast.xml
-            echo "No existing appcast at $SPARKLE_FEED_URL; generating a fresh feed."
+            echo "No existing appcast at ${{ matrix.feed_url }}; generating a fresh feed."
           fi
 
       - name: Generate signed appcast artifact
@@ -691,7 +761,11 @@ jobs:
         env:
           SPARKLE_DOWNLOAD_URL_PREFIX: https://github.com/openclaw/openclaw/releases/download/${{ inputs.tag }}/
           SPARKLE_RELEASE_VERSION: ${{ steps.package_version.outputs.value }}
-        run: scripts/make_appcast.sh "dist/OpenClaw-${{ steps.package_version.outputs.value }}.zip" "${{ env.SPARKLE_FEED_URL }}"
+        run: |
+          scripts/make_appcast.sh \
+            "dist/OpenClaw-${{ steps.package_version.outputs.value }}${{ matrix.artifact_suffix }}.zip" \
+            "${{ matrix.feed_url }}"
+          mv appcast.xml "${{ matrix.appcast_name }}"
 
       - name: Resolve packaged artifact name
         id: packaged_artifacts
@@ -701,24 +775,23 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
-            echo "value=macos-smoke-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+            echo "value=macos-smoke-${RELEASE_TAG}-${{ matrix.variant }}" >> "$GITHUB_OUTPUT"
           else
-            echo "value=macos-preflight-${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+            echo "value=macos-preflight-${RELEASE_TAG}-${{ matrix.variant }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Resolve packaged file paths
         id: packaged_files
         run: |
           set -euo pipefail
-          SEARCH_DIR="source/dist"
-          ZIP_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.zip' ! -name '*.dSYM.zip' ! -name '*.notary.zip' -print | sort | tail -n 1)"
-          DMG_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dmg' -print | sort | tail -n 1)"
-          DSYM_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dSYM.zip' -print | sort | tail -n 1)"
-          if [[ -z "$ZIP_PATH" || -z "$DMG_PATH" || -z "$DSYM_PATH" ]]; then
-            echo "Missing packaged outputs in $SEARCH_DIR" >&2
-            ls -la "$SEARCH_DIR" >&2 || true
-            exit 1
-          fi
+          VERSION="${{ steps.package_version.outputs.value }}"
+          SUFFIX="${{ matrix.artifact_suffix }}"
+          ZIP_PATH="source/dist/OpenClaw-${VERSION}${SUFFIX}.zip"
+          DMG_PATH="source/dist/OpenClaw-${VERSION}${SUFFIX}.dmg"
+          DSYM_PATH="source/dist/OpenClaw-${VERSION}${SUFFIX}.dSYM.zip"
+          for path in "$ZIP_PATH" "$DMG_PATH" "$DSYM_PATH"; do
+            [[ -f "$path" ]] || { echo "Missing packaged output: $path" >&2; exit 1; }
+          done
           echo "zip=$ZIP_PATH" >> "$GITHUB_OUTPUT"
           echo "dmg=$DMG_PATH" >> "$GITHUB_OUTPUT"
           echo "dsym=$DSYM_PATH" >> "$GITHUB_OUTPUT"
@@ -729,24 +802,24 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           ZIP_PATH: ${{ steps.packaged_files.outputs.zip }}
+          APPCAST_NAME: ${{ matrix.appcast_name }}
+          ARTIFACT_VARIANT: ${{ matrix.variant }}
         run: |
           set -euo pipefail
-          APPCAST_PATH="source/appcast.xml"
+          APPCAST_PATH="source/${APPCAST_NAME}"
           if [[ -z "$APPCAST_PATH" || ! -f "$APPCAST_PATH" ]]; then
             echo "Stable appcast artifact not found." >&2
             exit 1
           fi
           python3 release-tools/scripts/verify-macos-appcast.py "$APPCAST_PATH" "$ZIP_PATH" \
-            "$RELEASE_TAG" "$OPENCLAW_REPOSITORY"
+            "$RELEASE_TAG" "$OPENCLAW_REPOSITORY" "$ARTIFACT_VARIANT"
           echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Resolve packaged version
         id: packaged_version
         run: |
           set -euo pipefail
-          VERSION="$(basename "${{ steps.packaged_files.outputs.zip }}")"
-          VERSION="${VERSION#OpenClaw-}"
-          VERSION="${VERSION%.zip}"
+          VERSION="${{ steps.package_version.outputs.value }}"
           if [[ -z "$VERSION" ]]; then
             echo "Unable to resolve packaged version from zip filename." >&2
             exit 1
@@ -757,7 +830,7 @@ jobs:
         if: ${{ !inputs.smoke_test_only && steps.release_channel.outputs.is_beta != 'true' }}
         uses: actions/upload-artifact@v7
         with:
-          name: macos-appcast-${{ inputs.tag }}
+          name: macos-appcast-${{ inputs.tag }}-${{ matrix.variant }}
           path: ${{ steps.appcast_path.outputs.path }}
           if-no-files-found: error
 
@@ -777,8 +850,8 @@ jobs:
             ${{ steps.packaged_files.outputs.zip }}
             ${{ steps.packaged_files.outputs.dmg }}
             ${{ steps.packaged_files.outputs.dsym }}
-            ${{ steps.release_provenance.outputs.dir }}/release-tag.txt
-            ${{ steps.release_provenance.outputs.dir }}/release-sha.txt
+            ${{ steps.release_provenance.outputs.dir }}/release-tag-${{ matrix.variant }}.txt
+            ${{ steps.release_provenance.outputs.dir }}/release-sha-${{ matrix.variant }}.txt
           if-no-files-found: error
 
       - name: Summarize follow-up
@@ -803,11 +876,11 @@ jobs:
             fi
             echo
             if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
-              echo "Smoke-test mode skips shared production \`appcast.xml\` generation."
+              echo "Smoke-test mode skips production Sparkle appcast generation."
             elif [[ "$IS_BETA" != "true" ]]; then
-              echo "For stable releases, also download \`macos-appcast-${RELEASE_TAG}\` and commit \`appcast.xml\` back to \`main\` in \`${OPENCLAW_REPOSITORY}\`."
+              echo "For stable releases, also download \`macos-appcast-${RELEASE_TAG}\` and commit the universal, arm64, and x86_64 appcasts back to \`main\` in \`${OPENCLAW_REPOSITORY}\`."
             else
-              echo "Beta release detected; no shared production \`appcast.xml\` artifact is generated."
+              echo "Beta release detected; no production Sparkle appcasts are generated."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -817,6 +890,103 @@ jobs:
           if [[ -n "${KEYCHAIN_PATH:-}" ]]; then
             security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
           fi
+
+  collect_preflight_artifacts:
+    needs: [prepare, build_sign_and_package]
+    if: ${{ needs.prepare.outputs.reuse_preflight != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download signed preflight variants
+        if: ${{ !inputs.smoke_test_only }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: macos-preflight-${{ inputs.tag }}-*
+          path: collected-artifacts
+          merge-multiple: true
+
+      - name: Download smoke-test variants
+        if: ${{ inputs.smoke_test_only }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: macos-smoke-${{ inputs.tag }}-*
+          path: collected-artifacts
+          merge-multiple: true
+
+      - name: Verify complete macOS artifact set
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          for suffix in "" -arm64 -x86_64; do
+            for extension in zip dmg dSYM.zip; do
+              path="collected-artifacts/OpenClaw-${version}${suffix}.${extension}"
+              [[ -f "$path" ]] || { echo "Missing macOS artifact variant: $path" >&2; exit 1; }
+            done
+          done
+          release_sha=""
+          for variant in universal arm64 x86_64; do
+            tag_file="collected-artifacts/release-tag-${variant}.txt"
+            sha_file="collected-artifacts/release-sha-${variant}.txt"
+            [[ "$(tr -d '\r\n' < "$tag_file")" == "$RELEASE_TAG" ]] || {
+              echo "macOS ${variant} artifact tag mismatch." >&2
+              exit 1
+            }
+            variant_sha="$(tr -d '\r\n' < "$sha_file")"
+            [[ "$variant_sha" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "macOS ${variant} artifact SHA is invalid." >&2
+              exit 1
+            }
+            if [[ -n "$release_sha" && "$variant_sha" != "$release_sha" ]]; then
+              echo "macOS artifact variants were built from different source commits." >&2
+              exit 1
+            fi
+            release_sha="$variant_sha"
+          done
+          cp collected-artifacts/release-tag-universal.txt collected-artifacts/release-tag.txt
+          cp collected-artifacts/release-sha-universal.txt collected-artifacts/release-sha.txt
+
+      - name: Upload complete macOS preflight artifact
+        if: ${{ !inputs.smoke_test_only }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-preflight-${{ inputs.tag }}
+          path: collected-artifacts
+          if-no-files-found: error
+
+      - name: Upload complete macOS smoke artifact
+        if: ${{ inputs.smoke_test_only }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-smoke-${{ inputs.tag }}
+          path: collected-artifacts
+          if-no-files-found: error
+
+      - name: Download architecture-specific appcasts
+        if: ${{ !inputs.smoke_test_only && !contains(inputs.tag, '-beta.') }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: macos-appcast-${{ inputs.tag }}-*
+          path: collected-appcasts
+          merge-multiple: true
+
+      - name: Verify complete appcast set
+        if: ${{ !inputs.smoke_test_only && !contains(inputs.tag, '-beta.') }}
+        run: |
+          set -euo pipefail
+          for name in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
+            [[ -f "collected-appcasts/$name" ]] || { echo "Missing macOS appcast: $name" >&2; exit 1; }
+          done
+
+      - name: Upload complete appcast artifact
+        if: ${{ !inputs.smoke_test_only && !contains(inputs.tag, '-beta.') }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-appcast-${{ inputs.tag }}
+          path: collected-appcasts
+          if-no-files-found: error
 
   promote_release_artifacts:
     needs: prepare
@@ -999,45 +1169,53 @@ jobs:
 
       - name: Resolve packaged file paths
         id: packaged_files
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           SEARCH_DIR="promoted-artifacts"
-          ZIP_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.zip' ! -name '*.dSYM.zip' ! -name '*.notary.zip' -print | sort | tail -n 1)"
-          DMG_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dmg' -print | sort | tail -n 1)"
-          DSYM_PATH="$(find "$SEARCH_DIR" -type f -name 'OpenClaw-*.dSYM.zip' -print | sort | tail -n 1)"
-          if [[ -z "$ZIP_PATH" || -z "$DMG_PATH" || -z "$DSYM_PATH" ]]; then
-            echo "Missing packaged outputs in $SEARCH_DIR" >&2
-            ls -la "$SEARCH_DIR" >&2 || true
-            exit 1
-          fi
-          echo "zip=$ZIP_PATH" >> "$GITHUB_OUTPUT"
-          echo "dmg=$DMG_PATH" >> "$GITHUB_OUTPUT"
-          echo "dsym=$DSYM_PATH" >> "$GITHUB_OUTPUT"
+          VERSION="${RELEASE_TAG#v}"
+          for variant in universal arm64 x86_64; do
+            suffix=""
+            [[ "$variant" == universal ]] || suffix="-$variant"
+            for kind in zip dmg dsym; do
+              extension="$kind"
+              [[ "$kind" == dsym ]] && extension="dSYM.zip"
+              path="$SEARCH_DIR/OpenClaw-${VERSION}${suffix}.${extension}"
+              [[ -f "$path" ]] || { echo "Missing packaged output: $path" >&2; exit 1; }
+              echo "${variant}_${kind}=$path" >> "$GITHUB_OUTPUT"
+            done
+          done
 
       - name: Resolve appcast path
         id: appcast_path
         if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-          ZIP_PATH: ${{ steps.packaged_files.outputs.zip }}
+          UNIVERSAL_ZIP: ${{ steps.packaged_files.outputs.universal_zip }}
+          ARM64_ZIP: ${{ steps.packaged_files.outputs.arm64_zip }}
+          X86_64_ZIP: ${{ steps.packaged_files.outputs.x86_64_zip }}
         run: |
           set -euo pipefail
-          APPCAST_PATH="$(find promoted-appcast -type f -name 'appcast.xml' -print | sort | tail -n 1)"
-          if [[ -z "$APPCAST_PATH" || ! -f "$APPCAST_PATH" ]]; then
-            echo "Stable appcast artifact not found." >&2
-            exit 1
-          fi
-          python3 release-tools/scripts/verify-macos-appcast.py "$APPCAST_PATH" "$ZIP_PATH" \
-            "$RELEASE_TAG" "$OPENCLAW_REPOSITORY"
-          echo "path=$APPCAST_PATH" >> "$GITHUB_OUTPUT"
+          for variant in universal arm64 x86_64; do
+            case "$variant" in
+              universal) name=appcast.xml; zip="$UNIVERSAL_ZIP" ;;
+              arm64) name=appcast-arm64.xml; zip="$ARM64_ZIP" ;;
+              x86_64) name=appcast-x86_64.xml; zip="$X86_64_ZIP" ;;
+            esac
+            path="promoted-appcast/$name"
+            [[ -f "$path" ]] || { echo "Stable appcast artifact not found: $name" >&2; exit 1; }
+            python3 release-tools/scripts/verify-macos-appcast.py "$path" "$zip" \
+              "$RELEASE_TAG" "$OPENCLAW_REPOSITORY" "$variant"
+            echo "${variant}=$path" >> "$GITHUB_OUTPUT"
+          done
 
       - name: Resolve packaged version
         id: packaged_version
         run: |
           set -euo pipefail
-          VERSION="$(basename "${{ steps.packaged_files.outputs.zip }}")"
-          VERSION="${VERSION#OpenClaw-}"
-          VERSION="${VERSION%.zip}"
+          VERSION="${{ inputs.tag }}"
+          VERSION="${VERSION#v}"
           if [[ -z "$VERSION" ]]; then
             echo "Unable to resolve packaged version from zip filename." >&2
             exit 1
@@ -1049,7 +1227,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: macos-appcast-${{ inputs.tag }}
-          path: ${{ steps.appcast_path.outputs.path }}
+          path: |
+            ${{ steps.appcast_path.outputs.universal }}
+            ${{ steps.appcast_path.outputs.arm64 }}
+            ${{ steps.appcast_path.outputs.x86_64 }}
           if-no-files-found: error
 
       - name: Skip shared appcast for beta releases
@@ -1061,47 +1242,52 @@ jobs:
         with:
           name: ${{ steps.packaged_artifacts.outputs.value }}
           path: |
-            ${{ steps.packaged_files.outputs.zip }}
-            ${{ steps.packaged_files.outputs.dmg }}
-            ${{ steps.packaged_files.outputs.dsym }}
+            ${{ steps.packaged_files.outputs.universal_zip }}
+            ${{ steps.packaged_files.outputs.universal_dmg }}
+            ${{ steps.packaged_files.outputs.universal_dsym }}
+            ${{ steps.packaged_files.outputs.arm64_zip }}
+            ${{ steps.packaged_files.outputs.arm64_dmg }}
+            ${{ steps.packaged_files.outputs.arm64_dsym }}
+            ${{ steps.packaged_files.outputs.x86_64_zip }}
+            ${{ steps.packaged_files.outputs.x86_64_dmg }}
+            ${{ steps.packaged_files.outputs.x86_64_dsym }}
           if-no-files-found: error
 
       - name: Upload packaged macOS assets to public GitHub release
         env:
           GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
-          ZIP_PATH: ${{ steps.packaged_files.outputs.zip }}
-          DMG_PATH: ${{ steps.packaged_files.outputs.dmg }}
-          DSYM_PATH: ${{ steps.packaged_files.outputs.dsym }}
+          VERSION: ${{ steps.packaged_version.outputs.value }}
         run: |
           set -euo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
             echo "Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret." >&2
             exit 1
           fi
-          gh release upload "$RELEASE_TAG" \
-            "$ZIP_PATH" \
-            "$DMG_PATH" \
-            "$DSYM_PATH" \
-            --clobber \
-            --repo "$OPENCLAW_REPOSITORY"
+          assets=()
+          for suffix in "" -arm64 -x86_64; do
+            for extension in zip dmg dSYM.zip; do
+              assets+=("promoted-artifacts/OpenClaw-${VERSION}${suffix}.${extension}")
+            done
+          done
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber --repo "$OPENCLAW_REPOSITORY"
 
       - name: Verify public GitHub release assets
         env:
           GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
-          ZIP_PATH: ${{ steps.packaged_files.outputs.zip }}
-          DMG_PATH: ${{ steps.packaged_files.outputs.dmg }}
-          DSYM_PATH: ${{ steps.packaged_files.outputs.dsym }}
+          VERSION: ${{ steps.packaged_version.outputs.value }}
         run: |
           set -euo pipefail
           ASSET_NAMES="$(gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" --json assets --jq '.assets[].name')"
-          for asset_path in "$ZIP_PATH" "$DMG_PATH" "$DSYM_PATH"; do
-            asset_name="$(basename "$asset_path")"
-            if ! printf '%s\n' "$ASSET_NAMES" | grep -Fqx "$asset_name"; then
-              echo "Expected release asset not found after upload: $asset_name" >&2
-              exit 1
-            fi
+          for suffix in "" -arm64 -x86_64; do
+            for extension in zip dmg dSYM.zip; do
+              asset_name="OpenClaw-${VERSION}${suffix}.${extension}"
+              if ! printf '%s\n' "$ASSET_NAMES" | grep -Fqx "$asset_name"; then
+                echo "Expected release asset not found after upload: $asset_name" >&2
+                exit 1
+              fi
+            done
           done
 
       - name: Publish stable appcast to public main
@@ -1110,18 +1296,21 @@ jobs:
           GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.packaged_version.outputs.value }}
-          APPCAST_PATH: ${{ steps.appcast_path.outputs.path }}
+          UNIVERSAL_APPCAST: ${{ steps.appcast_path.outputs.universal }}
+          ARM64_APPCAST: ${{ steps.appcast_path.outputs.arm64 }}
+          X86_64_APPCAST: ${{ steps.appcast_path.outputs.x86_64 }}
         run: |
           set -euo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
             echo "Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret." >&2
             exit 1
           fi
-          if [[ -z "${APPCAST_PATH}" || ! -f "${APPCAST_PATH}" ]]; then
-            echo "Stable appcast path is missing: ${APPCAST_PATH}" >&2
-            exit 1
-          fi
-          appcast_source="$(realpath "${APPCAST_PATH}")"
+          for path in "$UNIVERSAL_APPCAST" "$ARM64_APPCAST" "$X86_64_APPCAST"; do
+            [[ -f "$path" ]] || { echo "Stable appcast path is missing: $path" >&2; exit 1; }
+          done
+          universal_source="$(realpath "$UNIVERSAL_APPCAST")"
+          arm64_source="$(realpath "$ARM64_APPCAST")"
+          x86_64_source="$(realpath "$X86_64_APPCAST")"
 
           workdir="$(mktemp -d)"
           trap 'rm -rf "${workdir}"' EXIT
@@ -1129,14 +1318,16 @@ jobs:
           cd "${workdir}/openclaw"
           git config user.name "openclaw-release-bot"
           git config user.email "release-bot@openclaw.ai"
-          cp "${appcast_source}" appcast.xml
+          cp "$universal_source" appcast.xml
+          cp "$arm64_source" appcast-arm64.xml
+          cp "$x86_64_source" appcast-x86_64.xml
 
-          if git diff --quiet -- appcast.xml; then
-            echo "Public main already has appcast.xml for ${RELEASE_TAG}."
+          if git diff --quiet -- appcast.xml appcast-arm64.xml appcast-x86_64.xml; then
+            echo "Public main already has every macOS appcast for ${RELEASE_TAG}."
             exit 0
           fi
 
-          git add appcast.xml
+          git add appcast.xml appcast-arm64.xml appcast-x86_64.xml
           git commit -m "chore(release): update appcast for ${VERSION}"
           if git push origin HEAD:main; then
             echo "Published appcast.xml directly to public main for ${RELEASE_TAG}."
@@ -1152,7 +1343,7 @@ jobs:
               --head "${branch}" \
               --base main \
               --title "chore(release): update appcast for ${VERSION}" \
-              --body "Updates the stable Sparkle appcast generated by macOS publish for ${RELEASE_TAG}.")"
+              --body "Updates the universal, arm64, and x86_64 Sparkle appcasts generated by macOS publish for ${RELEASE_TAG}.")"
           fi
           echo "Direct main push was blocked; opened appcast PR: ${pr_url}"
 

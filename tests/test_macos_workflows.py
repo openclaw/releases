@@ -23,6 +23,33 @@ def step_script(source, name):
 
 
 class MacOSWorkflowTests(unittest.TestCase):
+    def test_variant_collector_requires_all_assets_and_matching_provenance(self):
+        script = step_script(workflow('openclaw-macos-publish.yml'),
+                             'Verify complete macOS artifact set')
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            collected = root / 'collected-artifacts'
+            collected.mkdir()
+            version = '2026.8.2'
+            source_sha = 'a' * 40
+            for variant, suffix in [('universal', ''), ('arm64', '-arm64'),
+                                    ('x86_64', '-x86_64')]:
+                for extension in ['zip', 'dmg', 'dSYM.zip']:
+                    (collected / f'OpenClaw-{version}{suffix}.{extension}').touch()
+                (collected / f'release-tag-{variant}.txt').write_text(f'v{version}\n')
+                (collected / f'release-sha-{variant}.txt').write_text(f'{source_sha}\n')
+            result = subprocess.run(['bash', '-c', script], cwd=root,
+                                    env=dict(os.environ, RELEASE_TAG=f'v{version}'),
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((collected / 'release-sha.txt').read_text(), f'{source_sha}\n')
+            (collected / 'release-sha-x86_64.txt').write_text(f'{"b" * 40}\n')
+            mismatch = subprocess.run(['bash', '-c', script], cwd=root,
+                                      env=dict(os.environ, RELEASE_TAG=f'v{version}'),
+                                      capture_output=True, text=True)
+            self.assertNotEqual(mismatch.returncode, 0)
+            self.assertIn('built from different source commits', mismatch.stderr)
+
     def test_release_build_is_owned_by_validation_before_metadata_and_skipped_on_resume(self):
         publish = workflow('openclaw-macos-publish.yml')
         phase = publish.split('      - name: Release packaging guards\n', 1)[1].split('      - name: Capture release provenance\n', 1)[0]
@@ -51,7 +78,10 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                 git.chmod(0o755)
                 result_code = 0
                 for step in steps:
-                    self.assertIn("if: ${{ inputs.resume_notarization_run_id == '' }}", step)
+                    self.assertIn(
+                        "if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}",
+                        step,
+                    )
                     if resume:
                         continue
                     run = step.split('        run: ', 1)[1]
@@ -86,23 +116,38 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                     root = Path(td)
                     (root / directory).mkdir()
                     (root / 'release-tools').symlink_to(ROOT, target_is_directory=True)
-                    package = root / 'OpenClaw-2026.8.2.zip'
                     values = dict(version='2026.8.2', build='202608020', url_tag='v2026.8.2',
                                   signature='fixture-signature', bundle_version='2026.8.2') | changes
-                    with zipfile.ZipFile(package, 'w') as archive:
-                        archive.writestr('OpenClaw.app/Contents/Info.plist', plistlib.dumps({
-                            'CFBundleShortVersionString': values['bundle_version'], 'CFBundleVersion': '202608020'}))
-                    length = values.get('length', str(package.stat().st_size))
-                    (root / directory / 'appcast.xml').write_text(f'''<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>
-                        <sparkle:shortVersionString>{values['version']}</sparkle:shortVersionString>
-                        <sparkle:version>{values['build']}</sparkle:version>
-                        <enclosure url="https://github.com/openclaw/openclaw/releases/download/{values['url_tag']}/{package.name}"
-                          length="{length}" sparkle:edSignature="{values['signature']}"/>
-                        </item></channel></rss>''')
+                    variants = [('universal', '', 'appcast.xml')]
+                    if stage == 'promotion':
+                        variants += [('arm64', '-arm64', 'appcast-arm64.xml'),
+                                     ('x86_64', '-x86_64', 'appcast-x86_64.xml')]
+                    packages = {}
+                    for variant, suffix, appcast_name in variants:
+                        package = root / f'OpenClaw-2026.8.2{suffix}.zip'
+                        feed = f'https://raw.githubusercontent.com/openclaw/openclaw/main/{appcast_name}'
+                        with zipfile.ZipFile(package, 'w') as archive:
+                            archive.writestr('OpenClaw.app/Contents/Info.plist', plistlib.dumps({
+                                'CFBundleShortVersionString': values['bundle_version'],
+                                'CFBundleVersion': '202608020', 'SUFeedURL': feed}))
+                        length = values.get('length', str(package.stat().st_size))
+                        (root / directory / appcast_name).write_text(f'''<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item>
+                            <sparkle:shortVersionString>{values['version']}</sparkle:shortVersionString>
+                            <sparkle:version>{values['build']}</sparkle:version>
+                            <enclosure url="https://github.com/openclaw/openclaw/releases/download/{values['url_tag']}/{package.name}"
+                              length="{length}" sparkle:edSignature="{values['signature']}"/>
+                            </item></channel></rss>''')
+                        packages[variant] = package
+                    package = packages['universal']
+                    env = dict(os.environ, RELEASE_TAG='v2026.8.2',
+                               OPENCLAW_REPOSITORY='openclaw/openclaw', ZIP_PATH=str(package),
+                               APPCAST_NAME='appcast.xml', ARTIFACT_VARIANT='universal',
+                               UNIVERSAL_ZIP=str(packages['universal']),
+                               ARM64_ZIP=str(packages.get('arm64', package)),
+                               X86_64_ZIP=str(packages.get('x86_64', package)),
+                               GITHUB_OUTPUT=str(root / 'output'))
                     result = subprocess.run(['bash', '-c', script], cwd=root,
-                                            env=dict(os.environ, RELEASE_TAG='v2026.8.2',
-                                                     OPENCLAW_REPOSITORY='openclaw/openclaw', ZIP_PATH=str(package),
-                                                     GITHUB_OUTPUT=str(root / 'output')),
+                                            env=env,
                                             capture_output=True, text=True)
                     self.assertEqual(result.returncode == 0, accepted, result.stderr)
                     self.assertEqual((root / 'output').exists(), accepted)
@@ -157,7 +202,9 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                 package.write_text('#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n')
                 package.chmod(0o755)
                 result = subprocess.run(['bash', '-c', script], cwd=root,
-                                        env=dict(os.environ, RESUME_RUN_ID=run_id), capture_output=True, text=True)
+                                        env=dict(os.environ, RESUME_RUN_ID=run_id,
+                                                 ARTIFACT_VARIANT='universal'),
+                                        capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), expected)
         # Job scheduling is itself the contract: a resume must never install or compile.
@@ -165,7 +212,10 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                      'Cache SwiftPM', 'Release packaging guards', 'Build and verify release contents',
                      'Validate release tag and package metadata']:
             step = publish.split(f'      - name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
-            self.assertIn("if: ${{ inputs.resume_notarization_run_id == '' }}", step)
+            self.assertIn(
+                "if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}",
+                step,
+            )
         self.assertIn('environment: mac-release', publish.split('  build_sign_and_package:', 1)[1])
 
     def test_checkpoint_binding_fails_before_packager_for_wrong_release_or_source(self):
