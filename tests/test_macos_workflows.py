@@ -16,13 +16,98 @@ def workflow(name):
     return (ROOT / '.github/workflows' / name).read_text()
 
 
+def step_source(source, name):
+    return source.split(f'      - name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
+
+
 def step_script(source, name):
-    step = source.split(f'      - name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
+    step = step_source(source, name)
     script = step.split('        run: |\n', 1)[1]
     return '\n'.join(line[10:] for line in script.splitlines()) + '\n'
 
 
+def render_expressions(value, context):
+    return re.sub(r'\$\{\{ (.*?) \}\}', lambda match: context[match[1]], value)
+
+
+def step_environment(source, name, context):
+    header = step_source(source, name).split('        run:', 1)[0]
+    return {key: render_expressions(value, context)
+            for key, value in re.findall(r'^          ([A-Z_]+): (.*)$', header, re.MULTILINE)}
+
+
 class MacOSWorkflowTests(unittest.TestCase):
+    def test_capture_provenance_uses_each_variant_step_environment(self):
+        source = workflow('openclaw-macos-publish.yml')
+        name = 'Capture release provenance'
+        for variant in ['universal', 'arm64', 'x86_64']:
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                subprocess.run(['git', 'init', '-q', 'source'], cwd=root, check=True)
+                subprocess.run(['git', '-C', 'source', '-c', 'user.name=Test',
+                                '-c', 'user.email=test@example.invalid',
+                                '-c', 'commit.gpgsign=false', 'commit', '--allow-empty',
+                                '-qm', 'fixture'], cwd=root, check=True)
+                source_sha = subprocess.check_output(
+                    ['git', '-C', 'source', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+                output = root / 'output'
+                env = {key: value for key, value in os.environ.items()
+                       if key not in ['ARTIFACT_VARIANT', 'RELEASE_TAG']}
+                env.update(RUNNER_TEMP=td, GITHUB_OUTPUT=str(output))
+                env.update(step_environment(source, name, {
+                    'inputs.tag': 'v2026.8.2', 'matrix.variant': variant}))
+                result = subprocess.run(['/bin/bash', '-e', '-o', 'pipefail', '-c',
+                                         step_script(source, name)], cwd=root, env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                artifact_dir = root / 'openclaw-macos-preflight'
+                self.assertEqual({path.name: path.read_text() for path in artifact_dir.iterdir()}, {
+                    f'release-tag-{variant}.txt': 'v2026.8.2\n',
+                    f'release-sha-{variant}.txt': f'{source_sha}\n',
+                })
+                self.assertEqual(output.read_text(), f'dir={artifact_dir}\n')
+
+    def test_generated_appcast_keeps_bytes_and_variant_name(self):
+        source = workflow('openclaw-macos-publish.yml')
+        name = 'Generate signed appcast artifact'
+        for variant, suffix in [('universal', ''), ('arm64', '-arm64'),
+                                ('x86_64', '-x86_64')]:
+            for fail in [False, True]:
+                with self.subTest(variant=variant, fail=fail), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    scripts = root / 'scripts'
+                    scripts.mkdir()
+                    generator = scripts / 'make_appcast.sh'
+                    generator.write_text('''#!/bin/bash
+set -euo pipefail
+printf '%s\\n' "$@" "$SPARKLE_DOWNLOAD_URL_PREFIX" "$SPARKLE_RELEASE_VERSION" > calls
+if [[ "$FAIL_GENERATOR" == 1 ]]; then exit 31; fi
+printf '%s\\n' '<rss>fixture signed enclosure</rss>' > appcast.xml
+''')
+                    generator.chmod(0o755)
+                    appcast_name = f'appcast{suffix}.xml'
+                    feed_url = f'https://raw.githubusercontent.com/openclaw/openclaw/main/{appcast_name}'
+                    context = {'inputs.tag': 'v2026.8.2',
+                               'steps.package_version.outputs.value': '2026.8.2',
+                               'matrix.artifact_suffix': suffix, 'matrix.feed_url': feed_url,
+                               'matrix.appcast_name': appcast_name}
+                    env = dict(os.environ, FAIL_GENERATOR='1' if fail else '0')
+                    env.update(step_environment(source, name, context))
+                    result = subprocess.run(['/bin/bash', '-e', '-o', 'pipefail', '-c',
+                                             render_expressions(step_script(source, name), context)],
+                                            cwd=root, env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 31 if fail else 0, result.stderr)
+                    self.assertEqual((root / 'calls').read_text().splitlines(), [
+                        f'dist/OpenClaw-2026.8.2{suffix}.zip', feed_url,
+                        'https://github.com/openclaw/openclaw/releases/download/v2026.8.2/',
+                        '2026.8.2',
+                    ])
+                    self.assertEqual(sorted(path.name for path in root.glob('appcast*.xml')),
+                                     [] if fail else [appcast_name])
+                    if not fail:
+                        self.assertEqual((root / appcast_name).read_bytes(),
+                                         b'<rss>fixture signed enclosure</rss>\n')
+
     def test_variant_collector_requires_all_assets_and_matching_provenance(self):
         script = step_script(workflow('openclaw-macos-publish.yml'),
                              'Verify complete macOS artifact set')

@@ -102,7 +102,6 @@ jobs:
       - name: Validate tag input format
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-          ARTIFACT_VARIANT: ${{ matrix.variant }}
         run: |
           set -euo pipefail
           if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]{4}\.[1-9][0-9]*\.[1-9][0-9]*((-beta\.[1-9][0-9]*)|(-[1-9][0-9]*))?$ ]]; then
@@ -468,6 +467,7 @@ jobs:
         id: release_provenance
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          ARTIFACT_VARIANT: ${{ matrix.variant }}
         run: |
           set -euo pipefail
           RELEASE_SHA="$(git -C source rev-parse HEAD)"
@@ -765,7 +765,9 @@ jobs:
           scripts/make_appcast.sh \
             "dist/OpenClaw-${{ steps.package_version.outputs.value }}${{ matrix.artifact_suffix }}.zip" \
             "${{ matrix.feed_url }}"
-          mv appcast.xml "${{ matrix.appcast_name }}"
+          if [[ "${{ matrix.appcast_name }}" != appcast.xml ]]; then
+            mv appcast.xml "${{ matrix.appcast_name }}"
+          fi
 
       - name: Resolve packaged artifact name
         id: packaged_artifacts
