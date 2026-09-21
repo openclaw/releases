@@ -114,7 +114,8 @@ run IDs in ordinary promotion after the public GitHub release exists.
 ### Resume a failed macOS notarization
 
 Signed preflights retain a `macos-notarization-<tag>-<run-id>-<attempt>` Actions
-artifact when the packaging script produces a valid recovery checkpoint. It
+artifact for universal builds and `macos-notarization-<tag>-<variant>-<run-id>-<attempt>`
+for `arm64` and `x86_64` when packaging produces a valid recovery checkpoint. Each
 contains the signed app, symbols, available DMG, Apple submission records, and
 the producer's Sparkle tools. Private signing keys are never included. Retention
 is 30 days; keep these payloads in Actions rather than the evidence ledger.
@@ -131,11 +132,19 @@ gh workflow run openclaw-macos-publish.yml --repo openclaw/releases --ref main \
   -f public_release_branch=release/YYYY.M.PATCH
 ```
 
+The default `resume_notarization_variant=universal` preserves existing recovery
+commands. Set it to `arm64` or `x86_64` to resume that variant, or `all` to resume
+all three checkpoints from the same run and attempt. Unselected variants build
+normally. Each selected variant requires its exact checkpoint; a missing or
+expired checkpoint fails that job without rebuilding. Use `all` when all three
+checkpoints exist to avoid rebuilding any variant.
+
 Recovery uses the same release authorization and `mac-release` environment. It verifies the producer,
-release/source binding, checkpoint hashes and signing identity, then resumes
-Apple submissions without rebuilding the app. An existing signed DMG is reused;
-if the failure preceded DMG creation, packaging creates and signs it after the
-app is notarized. The original Sparkle tools generate the final appcast.
+release/source binding, checkpoint hashes, the app's variant feed and signing
+identity, then resumes Apple submissions without rebuilding the selected app.
+An existing signed DMG is reused; if the failure preceded DMG creation, packaging
+creates and signs it after the app is notarized. The original Sparkle tools
+generate the final appcast.
 
 Use the successful recovery run as `preflight_run_id` for ordinary promotion,
 together with the successful validation run for the same source. Recovery does

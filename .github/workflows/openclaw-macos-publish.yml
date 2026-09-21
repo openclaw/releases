@@ -41,6 +41,16 @@ on:
         description: Exact attempt of the failed preflight that uploaded the recovery checkpoint
         required: false
         type: string
+      resume_notarization_variant:
+        description: Checkpoints to resume; unselected variants build normally
+        required: true
+        default: universal
+        type: choice
+        options:
+          - universal
+          - arm64
+          - x86_64
+          - all
       allow_late_calver_recovery:
         description: Allow mac-only recovery after the npm CalVer freshness window, while still verifying the published npm package exists
         required: true
@@ -82,12 +92,18 @@ jobs:
         env:
           RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
           RESUME_RUN_ATTEMPT: ${{ inputs.resume_notarization_run_attempt }}
+          RESUME_VARIANT: ${{ inputs.resume_notarization_variant }}
           PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
           SMOKE_TEST_ONLY: ${{ inputs.smoke_test_only }}
           WORKFLOW_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
+          case "$RESUME_VARIANT" in
+            universal|arm64|x86_64|all) ;;
+            *) echo "Invalid notarization recovery variant." >&2; exit 1 ;;
+          esac
           if [[ -z "$RESUME_RUN_ID" && -z "$RESUME_RUN_ATTEMPT" ]]; then
+            [[ "$RESUME_VARIANT" == universal ]] || { echo "A recovery variant requires a run id and exact attempt." >&2; exit 1; }
             exit 0
           fi
           if [[ ! "$RESUME_RUN_ID" =~ ^[1-9][0-9]*$ || ! "$RESUME_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
@@ -198,6 +214,21 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Select notarization recovery checkpoint
+        id: recovery_request
+        env:
+          REQUESTED_RUN_ID: ${{ inputs.resume_notarization_run_id }}
+          RESUME_VARIANT: ${{ inputs.resume_notarization_variant }}
+          ARTIFACT_VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          # Record selection once so every build and recovery step follows it.
+          if [[ "$RESUME_VARIANT" == all || "$RESUME_VARIANT" == "$ARTIFACT_VARIANT" ]]; then
+            echo "run_id=$REQUESTED_RUN_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout release verification tools
         uses: actions/checkout@v7
         with:
@@ -245,7 +276,7 @@ jobs:
           git -C source checkout --detach "refs/remotes/origin/${SOURCE_REF}"
 
       - name: Checkout submodules (retry)
-        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id == '' }}
         working-directory: source
         run: |
           set -euo pipefail
@@ -260,7 +291,7 @@ jobs:
           exit 1
 
       - name: Setup pnpm
-        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id == '' }}
         uses: pnpm/action-setup@v6
         with:
           package_json_file: source/package.json
@@ -270,18 +301,18 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: ${{ (inputs.resume_notarization_run_id == '' || matrix.variant != 'universal') && 'pnpm' || '' }}
+          cache: ${{ steps.recovery_request.outputs.run_id == '' && 'pnpm' || '' }}
           cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install dependencies
-        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id == '' }}
         working-directory: source
         env:
           CI: "true"
         run: pnpm install --frozen-lockfile
 
       - name: Prepare Apple Mermaid assets
-        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id == '' }}
         working-directory: source
         run: |
           set -euo pipefail
@@ -300,7 +331,7 @@ jobs:
           swift --version
 
       - name: Cache SwiftPM
-        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id == '' }}
         uses: actions/cache@v6
         with:
           path: ~/Library/Caches/org.swift.swiftpm
@@ -329,10 +360,10 @@ jobs:
           fi
 
       - name: Verify notarization checkpoint producer
-        if: ${{ inputs.resume_notarization_run_id != '' && matrix.variant == 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
+          RESUME_RUN_ID: ${{ steps.recovery_request.outputs.run_id }}
           RESUME_RUN_ATTEMPT: ${{ inputs.resume_notarization_run_attempt }}
         run: |
           set -euo pipefail
@@ -355,22 +386,23 @@ jobs:
           NODE
 
       - name: Download notarization checkpoint
-        if: ${{ inputs.resume_notarization_run_id != '' && matrix.variant == 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id != '' }}
         uses: actions/download-artifact@v8
         with:
-          name: macos-notarization-${{ inputs.tag }}-${{ inputs.resume_notarization_run_id }}-${{ inputs.resume_notarization_run_attempt }}
+          name: macos-notarization-${{ inputs.tag }}${{ matrix.artifact_suffix }}-${{ steps.recovery_request.outputs.run_id }}-${{ inputs.resume_notarization_run_attempt }}
           path: source/dist/macos-notarization-recovery
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.resume_notarization_run_id }}
+          run-id: ${{ steps.recovery_request.outputs.run_id }}
           github-token: ${{ github.token }}
 
       - name: Verify notarization checkpoint release binding
         id: recovery_verified
-        if: ${{ inputs.resume_notarization_run_id != '' && matrix.variant == 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id != '' }}
         working-directory: source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           PUBLIC_RELEASE_BRANCH: ${{ inputs.public_release_branch }}
+          EXPECTED_FEED_URL: ${{ matrix.feed_url }}
         run: |
           set -euo pipefail
           if [[ ! -f scripts/lib/mac-notarization-recovery.py ]] || ! grep -Fq -- '--resume-notarization' scripts/package-mac-dist.sh; then
@@ -406,9 +438,21 @@ jobs:
           NODE
           python3 scripts/lib/mac-notarization-recovery.py verify dist/macos-notarization-recovery \
             "$(git rev-parse HEAD)" "$(node -p "require('./package.json').version")" >/dev/null
+          # Existing checkpoints have no variant field. Bind the matrix to the
+          # feed already protected by the signed app and checkpoint hash.
+          python3 <<'PY'
+          import os, plistlib, zipfile
+          with zipfile.ZipFile('dist/macos-notarization-recovery/app.zip') as archive:
+              name = 'OpenClaw.app/Contents/Info.plist'
+              if archive.namelist().count(name) != 1:
+                  raise ValueError('Recovery checkpoint must contain one app Info.plist')
+              info = plistlib.loads(archive.read(name))
+              if info.get('SUFeedURL') != os.environ['EXPECTED_FEED_URL']:
+                  raise ValueError('Recovery checkpoint app feed does not match the selected variant')
+          PY
 
       - name: Release packaging guards
-        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id == '' }}
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=4096
@@ -419,7 +463,7 @@ jobs:
           pnpm check:host-env-policy:swift
 
       - name: Build and verify release contents
-        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id == '' }}
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=8192
@@ -427,7 +471,7 @@ jobs:
         run: pnpm release:check
 
       - name: Validate release tag and package metadata
-        if: ${{ inputs.resume_notarization_run_id == '' || matrix.variant != 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id == '' }}
         working-directory: source
         env:
           ALLOW_LATE_CALVER_RECOVERY: ${{ inputs.allow_late_calver_recovery }}
@@ -585,11 +629,10 @@ jobs:
           SKIP_TSC: "1"
           SKIP_UI_BUILD: "1"
           SPARKLE_FEED_URL: ${{ matrix.feed_url }}
-          RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
-          ARTIFACT_VARIANT: ${{ matrix.variant }}
+          RESUME_RUN_ID: ${{ steps.recovery_request.outputs.run_id }}
         run: |
           set -euo pipefail
-          if [[ -n "$RESUME_RUN_ID" && "$ARTIFACT_VARIANT" == "universal" ]]; then
+          if [[ -n "$RESUME_RUN_ID" ]]; then
             scripts/package-mac-dist.sh --resume-notarization
           else
             scripts/package-mac-dist.sh
@@ -612,7 +655,7 @@ jobs:
 
       - name: Preserve notarization recovery checkpoint
         id: recovery_checkpoint
-        if: ${{ always() && !inputs.smoke_test_only && steps.package_release.outcome != 'skipped' && (matrix.variant != 'universal' || inputs.resume_notarization_run_id == '' || steps.recovery_verified.outcome == 'success') && hashFiles('source/dist/macos-notarization-recovery/manifest.json') != '' }}
+        if: ${{ always() && !inputs.smoke_test_only && steps.package_release.outcome != 'skipped' && (steps.recovery_request.outputs.run_id == '' || steps.recovery_verified.outcome == 'success') && hashFiles('source/dist/macos-notarization-recovery/manifest.json') != '' }}
         working-directory: source
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -646,25 +689,16 @@ jobs:
           python3 scripts/lib/mac-notarization-recovery.py seal "$checkpoint"
 
       - name: Upload notarization recovery checkpoint
-        if: ${{ always() && matrix.variant == 'universal' && steps.recovery_checkpoint.outcome == 'success' }}
+        if: ${{ always() && steps.recovery_checkpoint.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
-          name: macos-notarization-${{ inputs.tag }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: source/dist/macos-notarization-recovery
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload architecture-specific notarization recovery checkpoint
-        if: ${{ always() && matrix.variant != 'universal' && steps.recovery_checkpoint.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: macos-notarization-${{ inputs.tag }}-${{ matrix.variant }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: macos-notarization-${{ inputs.tag }}${{ matrix.artifact_suffix }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: source/dist/macos-notarization-recovery
           if-no-files-found: error
           retention-days: 30
 
       - name: Restore checkpointed Sparkle tools
-        if: ${{ inputs.resume_notarization_run_id != '' && matrix.variant == 'universal' }}
+        if: ${{ steps.recovery_request.outputs.run_id != '' }}
         working-directory: source
         run: |
           set -euo pipefail
