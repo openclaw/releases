@@ -515,8 +515,9 @@ jobs:
         run: |
           set -euo pipefail
           RELEASE_SHA="$(git -C source rev-parse HEAD)"
-          ARTIFACT_DIR="$RUNNER_TEMP/openclaw-macos-preflight"
-          rm -rf "$ARTIFACT_DIR"
+          # Provenance must sit beside the packaged outputs: upload-artifact roots the
+          # artifact at the common ancestor of every path, and the collector expects flat files.
+          ARTIFACT_DIR="source/dist"
           mkdir -p "$ARTIFACT_DIR"
           printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag-${ARTIFACT_VARIANT}.txt"
           printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha-${ARTIFACT_VARIANT}.txt"

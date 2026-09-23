@@ -61,12 +61,14 @@ class MacOSWorkflowTests(unittest.TestCase):
                                          step_script(source, name)], cwd=root, env=env,
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                artifact_dir = root / 'openclaw-macos-preflight'
+                artifact_dir = root / 'source' / 'dist'
                 self.assertEqual({path.name: path.read_text() for path in artifact_dir.iterdir()}, {
                     f'release-tag-{variant}.txt': 'v2026.8.2\n',
                     f'release-sha-{variant}.txt': f'{source_sha}\n',
                 })
-                self.assertEqual(output.read_text(), f'dir={artifact_dir}\n')
+                # The packaged outputs live in the same directory, so the variant artifact stays flat.
+                self.assertEqual(output.read_text(), 'dir=source/dist\n')
+                self.assertIn('ZIP_PATH="source/dist/', step_script(source, 'Resolve packaged file paths'))
 
     def test_generated_appcast_keeps_bytes_and_variant_name(self):
         source = workflow('openclaw-macos-publish.yml')
