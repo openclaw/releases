@@ -418,6 +418,8 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                 self.assertEqual(result.returncode, int(exit_code), result.stderr)
                 self.assertEqual((root / 'calls').read_text(), '--resume-notarization\n')
         consumer = publish.split('  notarize_and_package:\n', 1)[1].split('  collect_preflight_artifacts:', 1)[0]
+        self.assertEqual(step_script(consumer, 'Select release toolchain'),
+                         step_script(publish, 'Select release toolchain'))
         for name in ['Checkout submodules (retry)', 'Setup pnpm', 'Install dependencies',
                      'Prepare Apple Mermaid assets', 'Cache SwiftPM', 'Release packaging guards',
                      'Build and verify release contents', 'Validate release tag and package metadata']:

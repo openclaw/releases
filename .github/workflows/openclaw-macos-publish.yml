@@ -979,6 +979,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Select release toolchain
+        if: ${{ steps.packaging.outputs.complete == 'true' }}
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+          xcodebuild -version
+          swift --version
+
       - name: Resolve package version
         if: ${{ steps.packaging.outputs.complete == 'true' }}
         id: package_version
