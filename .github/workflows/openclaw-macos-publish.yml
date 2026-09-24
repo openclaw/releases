@@ -1299,6 +1299,7 @@ jobs:
         with:
           name: macos-preflight-${{ inputs.tag }}
           path: collected-artifacts
+          overwrite: true
           if-no-files-found: error
 
       - name: Upload complete macOS smoke artifact
@@ -1307,6 +1308,7 @@ jobs:
         with:
           name: macos-smoke-${{ inputs.tag }}
           path: collected-artifacts
+          overwrite: true
           if-no-files-found: error
 
       - name: Download architecture-specific appcasts
@@ -1331,6 +1333,7 @@ jobs:
         with:
           name: macos-appcast-${{ inputs.tag }}
           path: collected-appcasts
+          overwrite: true
           if-no-files-found: error
 
   promote_release_artifacts:

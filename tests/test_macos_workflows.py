@@ -449,6 +449,12 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
         self.assertIn('run-id: ${{ steps.packaging.outputs.run_id }}', download)
         self.assertNotIn('pattern:', download)
         self.assertNotIn('overwrite:', step_source(publish, 'Upload notarization recovery checkpoint'))
+        # A consumer rerun also reruns its collector. Replace final outputs,
+        # while the source/attempt-bound checkpoint above remains immutable.
+        collector = publish.split('  collect_preflight_artifacts:', 1)[1].split('  promote_release_artifacts:', 1)[0]
+        for name in ['Upload complete macOS preflight artifact', 'Upload complete macOS smoke artifact',
+                     'Upload complete appcast artifact']:
+            self.assertIn('overwrite: true', step_source(collector, name))
 
     def test_checkpoint_binding_fails_before_packager_for_wrong_release_or_source(self):
         script = step_script(workflow('openclaw-macos-publish.yml'), 'Verify notarization checkpoint release binding')

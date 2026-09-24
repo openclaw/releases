@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Split macOS signing from notarization for sources with the checkpoint interface, allowing failed notarization jobs to rerun from the original signed bytes while preserving older-source packaging and manual recovery.
+- Split macOS signing from notarization for sources with the checkpoint interface, allowing failed notarization jobs and their collector to rerun from the original signed bytes while preserving older-source packaging and manual recovery.
 
 - Allow macOS notarization recovery for arm64, x86_64, or all variants while preserving existing universal recovery and checkpoint identity checks.
 

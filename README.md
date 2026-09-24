@@ -121,6 +121,10 @@ matrix verifies that checkpoint, notarizes and staples the retained bytes, and
 produces the preflight artifacts and appcast. A failed notarization job can be
 rerun without compiling or importing the Developer ID key again.
 
+Rerunning one consumer also reruns the collector. Final aggregate artifacts are
+replaced after their completeness and provenance checks; build checkpoints remain
+immutable.
+
 The immutable build inputs use `macos-signed-<tag><variant-suffix>-<run-id>-<attempt>`
 artifacts with the same recovery checkpoint format. Each variant records its
 actual build attempt and exact source SHA, so a later workflow attempt consumes
