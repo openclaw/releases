@@ -304,11 +304,13 @@ jobs:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
         run: |
           set -euo pipefail
-          echo "supported=$CHECKPOINT_SUPPORTED" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
-          echo "checkpoint_only=$CHECKPOINT_SUPPORTED" >> "$GITHUB_OUTPUT"
-          echo "complete=$([[ "$CHECKPOINT_SUPPORTED" == true ]] && echo false || echo true)" >> "$GITHUB_OUTPUT"
-          echo "needs_signing=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "supported=$CHECKPOINT_SUPPORTED"
+            echo "source_sha=$SOURCE_SHA"
+            echo "checkpoint_only=$CHECKPOINT_SUPPORTED"
+            echo "complete=$([[ "$CHECKPOINT_SUPPORTED" == true ]] && echo false || echo true)"
+            echo "needs_signing=true"
+          } >> "$GITHUB_OUTPUT"
           if [[ "$CHECKPOINT_SUPPORTED" == false ]]; then
             echo "::notice::Source predates --checkpoint-only; using the single-job packaging path."
           fi
