@@ -113,6 +113,26 @@ run IDs in ordinary promotion after the public GitHub release exists.
 
 ### Resume a failed macOS notarization
 
+For sources supporting `package-mac-dist.sh --checkpoint-only`, use **Re-run
+failed jobs** first (`gh run rerun <run-id> --failed --repo openclaw/releases`).
+The `build_and_sign` matrix builds, signs, audits, and retains the app, symbols,
+and signed DMG before contacting Apple. The separate `notarize_and_package`
+matrix verifies that checkpoint, notarizes and staples the retained bytes, and
+produces the preflight artifacts and appcast. A failed notarization job can be
+rerun without compiling or importing the Developer ID key again.
+
+Rerunning one consumer also reruns the collector. Final aggregate artifacts are
+replaced after their completeness and provenance checks; build checkpoints remain
+immutable.
+
+The immutable build inputs use `macos-signed-<tag><variant-suffix>-<run-id>-<attempt>`
+artifacts with the same recovery checkpoint format. Each variant records its
+actual build attempt and exact source SHA, so a later workflow attempt consumes
+the original successful build, even if the source branch has advanced. Recovery
+output is retained separately; it never overwrites the build input. Both have
+30-day retention. Sources without `--checkpoint-only` keep the single-job
+packaging path and the manual recovery procedure below.
+
 Signed preflights retain a `macos-notarization-<tag>-<run-id>-<attempt>` Actions
 artifact for universal builds and `macos-notarization-<tag>-<variant>-<run-id>-<attempt>`
 for `arm64` and `x86_64` when packaging produces a valid recovery checkpoint. Each
@@ -142,9 +162,11 @@ checkpoints exist to avoid rebuilding any variant.
 Recovery uses the same release authorization and `mac-release` environment. It verifies the producer,
 release/source binding, checkpoint hashes, the app's variant feed and signing
 identity, then resumes Apple submissions without rebuilding the selected app.
-An existing signed DMG is reused; if the failure preceded DMG creation, packaging
-creates and signs it after the app is notarized. The original Sparkle tools
-generate the final appcast.
+Selected recovery variants bypass `build_and_sign` and feed the notarization
+job directly. New checkpoints always include the signed DMG. Older source-bound
+checkpoints may need the original packager to create and sign a missing DMG;
+only that legacy recovery path imports the Developer ID key in the notarization
+job. The original Sparkle tools generate the final appcast.
 
 Use the successful recovery run as `preflight_run_id` for ordinary promotion,
 together with the successful validation run for the same source. Recovery does
