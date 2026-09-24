@@ -63,7 +63,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ inputs.smoke_test_only && format('openclaw-macos-smoke-{0}-{1}', github.ref, inputs.tag) || format('openclaw-macos-publish-{0}', contains(inputs.tag, '-beta.') && inputs.tag || 'stable-feed') }}
+  group: ${{ inputs.smoke_test_only && format('openclaw-macos-smoke-{0}-{1}-{2}', github.ref, inputs.tag, inputs.source_ref) || format('openclaw-macos-publish-{0}', contains(inputs.tag, '-beta.') && inputs.tag || 'stable-feed') }}
   cancel-in-progress: false
 
 env:
