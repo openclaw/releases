@@ -68,6 +68,13 @@ class MacOSWorkflowTests(unittest.TestCase):
                 })
                 # The packaged outputs live in the same directory, so the variant artifact stays flat.
                 self.assertEqual(output.read_text(), 'dir=source/dist\n')
+                # Packaging may rebuild the JS bundle and clean dist/, so provenance is written only
+                # after every packaging step and before the artifact upload (run 35969970230).
+                build_job = source.split('  collect_preflight_artifacts:', 1)[0]
+                order = [build_job.index(f'      - name: {step}\n') for step in [
+                    'Package macOS smoke-test artifacts', 'Build, sign, notarize, and package macOS release',
+                    name, 'Upload packaged macOS artifacts']]
+                self.assertEqual(order, sorted(order))
                 self.assertIn('ZIP_PATH="source/dist/', step_script(source, 'Resolve packaged file paths'))
 
     def test_generated_appcast_keeps_bytes_and_variant_name(self):
@@ -146,7 +153,8 @@ printf '%s\\n' '<rss>fixture signed enclosure</rss>' > appcast.xml
 
     def test_release_build_is_owned_by_validation_before_metadata_and_skipped_on_resume(self):
         publish = workflow('openclaw-macos-publish.yml')
-        phase = publish.split('      - name: Release packaging guards\n', 1)[1].split('      - name: Capture release provenance\n', 1)[0]
+        # The validation phase ends where packaging begins; provenance is captured after packaging.
+        phase = publish.split('      - name: Release packaging guards\n', 1)[1].split('      - name: Package macOS smoke-test artifacts\n', 1)[0]
         steps = phase.split('      - name: ')[1:]
         for resume, fail, expected in [('', False, ['release:check', 'release:openclaw:npm:check']),
                                         ('', True, ['release:check']), ('123', False, [])]:

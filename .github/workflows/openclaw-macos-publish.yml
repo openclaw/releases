@@ -507,22 +507,6 @@ jobs:
           '
           echo "::warning::Allowing late mac-only recovery for ${RELEASE_TAG}; published npm metadata for openclaw@${package_version} is present."
 
-      - name: Capture release provenance
-        id: release_provenance
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          ARTIFACT_VARIANT: ${{ matrix.variant }}
-        run: |
-          set -euo pipefail
-          RELEASE_SHA="$(git -C source rev-parse HEAD)"
-          # Provenance must sit beside the packaged outputs: upload-artifact roots the
-          # artifact at the common ancestor of every path, and the collector expects flat files.
-          ARTIFACT_DIR="source/dist"
-          mkdir -p "$ARTIFACT_DIR"
-          printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag-${ARTIFACT_VARIANT}.txt"
-          printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha-${ARTIFACT_VARIANT}.txt"
-          echo "dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
-
       - name: Package macOS smoke-test artifacts
         if: ${{ inputs.smoke_test_only }}
         working-directory: source
@@ -803,6 +787,24 @@ jobs:
           if [[ "${{ matrix.appcast_name }}" != appcast.xml ]]; then
             mv appcast.xml "${{ matrix.appcast_name }}"
           fi
+
+      - name: Capture release provenance
+        id: release_provenance
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          ARTIFACT_VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          RELEASE_SHA="$(git -C source rev-parse HEAD)"
+          # Provenance must sit beside the packaged outputs: upload-artifact roots the
+          # artifact at the common ancestor of every path, and the collector expects flat files.
+          # It is written AFTER packaging: the packaging step may rebuild the JS bundle, and
+          # tsdown cleans dist/ on a cache miss, which deleted these files in run 35969970230.
+          ARTIFACT_DIR="source/dist"
+          mkdir -p "$ARTIFACT_DIR"
+          printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag-${ARTIFACT_VARIANT}.txt"
+          printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha-${ARTIFACT_VARIANT}.txt"
+          echo "dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Resolve packaged artifact name
         id: packaged_artifacts
