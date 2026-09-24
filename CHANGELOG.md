@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Split macOS signing from notarization for sources with the checkpoint interface, allowing failed notarization jobs to rerun from the original signed bytes while preserving older-source packaging and manual recovery.
+
 - Allow macOS notarization recovery for arm64, x86_64, or all variants while preserving existing universal recovery and checkpoint identity checks.
 
 - Bind macOS provenance to each artifact variant before signing, and preserve the universal appcast filename without a redundant rename.

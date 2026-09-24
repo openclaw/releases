@@ -14,11 +14,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def workflow(name):
-    return (ROOT / '.github/workflows' / name).read_text()
+    source = (ROOT / '.github/workflows' / name).read_text()
+    # Shared YAML step anchors keep the legacy and split output guards identical.
+    anchors = {}
+    pattern = r'^      - &(\w+)\n        name: ([^\n]+)\n(.*?)(?=^      - |^  \w|\Z)'
+    def record(match):
+        block = f'      - name: {match[2]}\n{match[3]}'
+        anchors[match[1]] = block.rstrip() + '\n'
+        return block
+    source = re.sub(pattern, record, source, flags=re.M | re.S)
+    return re.sub(r'^      - \*(\w+)\n', lambda m: anchors[m[1]], source, flags=re.M)
 
 
 def step_source(source, name):
-    return source.split(f'      - name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
+    remainder = source.split(f'      - name: {name}\n', 1)[1]
+    return re.split(r'\n(?:      - name:|  [a-z_]+:)', remainder, maxsplit=1)[0]
 
 
 def step_script(source, name):
@@ -38,6 +48,102 @@ def step_environment(source, name, context):
 
 
 class MacOSWorkflowTests(unittest.TestCase):
+    def test_source_contract_selects_fresh_variants_and_legacy_fallback(self):
+        source = workflow('openclaw-macos-publish.yml')
+        script = step_script(source, 'Pin packaging source and variants')
+        for supported, selector in product([False, True], ['', 'universal', 'arm64', 'x86_64', 'all']):
+            with self.subTest(supported=supported, selector=selector), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                (root / 'source/scripts').mkdir(parents=True)
+                (root / 'source/scripts/package-mac-dist.sh').write_text(
+                    '--checkpoint-only) CHECKPOINT_ONLY=1 ;;' if supported else '--resume-notarization) ;;')
+                git = root / 'git'
+                git.write_text('#!/bin/sh\nprintf "%s\\n" ' + 'a' * 40 + '\n')
+                git.chmod(0o755)
+                output = root / 'output'
+                result = subprocess.run(['bash', '-c', script], cwd=root,
+                                        env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                                 RESUME_RUN_ID='123' if selector else '',
+                                                 RESUME_VARIANT=selector or 'universal', GITHUB_OUTPUT=str(output)),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                self.assertEqual(values['sha'], 'a' * 40)
+                self.assertEqual(values['supported'], str(supported).lower())
+                all_variants = json.loads(values['package_matrix'])['include']
+                fresh = json.loads(values['build_matrix'])['include']
+                self.assertEqual([v['variant'] for v in all_variants], ['universal', 'arm64', 'x86_64'])
+                self.assertEqual([v['variant'] for v in fresh], [v['variant'] for v in all_variants
+                                 if selector not in ['all', v['variant']]])
+                for variant in all_variants:
+                    self.assertTrue(variant['feed_url'].endswith('/' + variant['appcast_name']))
+
+    def test_build_packager_stops_at_checkpoint_only_when_supported(self):
+        source = workflow('openclaw-macos-publish.yml')
+        for step in ['Package macOS smoke-test artifacts', 'Build, sign, notarize, and package macOS release']:
+            for supported, exit_code in product(['true', 'false'], [0, 17]):
+                with self.subTest(step=step, supported=supported, exit_code=exit_code), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    (root / 'scripts').mkdir()
+                    package = root / 'scripts/package-mac-dist.sh'
+                    package.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > calls\nexit "$PACKAGE_EXIT"\n')
+                    package.chmod(0o755)
+                    result = subprocess.run(['bash', '-c', step_script(source, step)], cwd=root,
+                                            env=dict(os.environ, CHECKPOINT_ONLY=supported, PACKAGE_EXIT=str(exit_code)),
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, exit_code, result.stderr)
+                    self.assertEqual((root / 'calls').read_text().strip(), '--checkpoint-only' if supported == 'true' else '')
+
+    def test_retry_consumes_original_build_attempt_and_rejects_foreign_handoff(self):
+        source = workflow('openclaw-macos-publish.yml')
+        script = step_script(source, 'Select immutable variant handoff')
+        handoff = dict(sourceSha='a' * 40, supported=True, mode='checkpoint', runId='123', attempt='1')
+        cases = [({}, True), ({'runId': '999'}, False), ({'attempt': '3'}, False),
+                 ({'attempt': '0'}, False), ({'attempt': '../1'}, False),
+                 ({'sourceSha': 'b' * 40}, False), ({'sourceSha': 'main'}, False),
+                 ({'supported': False}, False), ({'mode': 'legacy'}, False), ({'mode': 'manual'}, False)]
+        for variant, (changes, accepted) in product(['universal', 'arm64', 'x86_64'], cases):
+            with self.subTest(variant=variant, changes=changes), tempfile.TemporaryDirectory() as td:
+                output = Path(td) / 'output'
+                env = dict(os.environ, HANDOFF=json.dumps(handoff | changes), EXPECTED_SOURCE_SHA='a' * 40,
+                           CHECKPOINT_SUPPORTED='true', MANUAL_RUN_ID='', MANUAL_ATTEMPT='',
+                           MANUAL_VARIANT='universal', ARTIFACT_VARIANT=variant,
+                           GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2', GITHUB_OUTPUT=str(output))
+                result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual(output.exists(), accepted)
+                if accepted:
+                    values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                    self.assertEqual(values['attempt'], '1')
+                    self.assertEqual(values['artifact_prefix'], 'macos-signed')
+                    self.assertEqual(values['needs_signing'], 'false')
+                    self.assertEqual(values['complete'], 'true')
+
+    def test_manual_recovery_bypasses_build_handoff_and_limits_legacy_signing(self):
+        source = workflow('openclaw-macos-publish.yml')
+        script = step_script(source, 'Select immutable variant handoff')
+        for supported, variant in product([False, True], ['universal', 'arm64', 'x86_64']):
+            with self.subTest(supported=supported, variant=variant), tempfile.TemporaryDirectory() as td:
+                output = Path(td) / 'output'
+                env = dict(os.environ, HANDOFF='', EXPECTED_SOURCE_SHA='a' * 40,
+                           CHECKPOINT_SUPPORTED=str(supported).lower(), MANUAL_RUN_ID='789', MANUAL_ATTEMPT='4',
+                           MANUAL_VARIANT='all', ARTIFACT_VARIANT=variant,
+                           GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1', GITHUB_OUTPUT=str(output))
+                result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                self.assertEqual(values['run_id'], '789')
+                self.assertEqual(values['attempt'], '4')
+                self.assertEqual(values['artifact_prefix'], 'macos-notarization')
+                self.assertEqual(values['needs_signing'], str(not supported).lower())
+        for name in ['Import Developer ID certificate', 'Resolve signing identity']:
+            self.assertIn("steps.packaging.outputs.needs_signing == 'true'", step_source(source, name))
+        self.assertIn("steps.packaging.outputs.complete == 'true' && !inputs.smoke_test_only",
+                      step_source(source, 'Write notary and Sparkle key files'))
+        before_promote = source.split('  promote_release_artifacts:', 1)[0]
+        self.assertNotIn('secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN', before_promote)
+        self.assertIn("inputs.resume_notarization_variant == 'all'", source.split('  build_and_sign:', 1)[1])
+
     def test_capture_provenance_uses_each_variant_step_environment(self):
         source = workflow('openclaw-macos-publish.yml')
         name = 'Capture release provenance'
@@ -70,11 +176,15 @@ class MacOSWorkflowTests(unittest.TestCase):
                 self.assertEqual(output.read_text(), 'dir=source/dist\n')
                 # Packaging may rebuild the JS bundle and clean dist/, so provenance is written only
                 # after every packaging step and before the artifact upload (run 35969970230).
-                build_job = source.split('  collect_preflight_artifacts:', 1)[0]
-                order = [build_job.index(f'      - name: {step}\n') for step in [
-                    'Package macOS smoke-test artifacts', 'Build, sign, notarize, and package macOS release',
-                    name, 'Upload packaged macOS artifacts']]
-                self.assertEqual(order, sorted(order))
+                for job, packagers in [
+                    ('build_and_sign', ['Package macOS smoke-test artifacts',
+                                        'Build, sign, notarize, and package macOS release']),
+                    ('notarize_and_package', ['Resume notarization and package macOS artifacts']),
+                ]:
+                    body = source.split(f'  {job}:\n', 1)[1].split('\n  collect_preflight_artifacts:', 1)[0]
+                    order = [body.index(f'      - name: {step}\n') for step in [
+                        *packagers, name, 'Upload packaged macOS artifacts']]
+                    self.assertEqual(order, sorted(order))
                 self.assertIn('ZIP_PATH="source/dist/', step_script(source, 'Resolve packaged file paths'))
 
     def test_generated_appcast_keeps_bytes_and_variant_name(self):
@@ -151,14 +261,14 @@ printf '%s\\n' '<rss>fixture signed enclosure</rss>' > appcast.xml
             self.assertNotEqual(partial.returncode, 0)
             self.assertIn('Missing macOS artifact variant:', partial.stderr)
 
-    def test_release_build_is_owned_by_validation_before_metadata_and_skipped_on_resume(self):
+    def test_release_build_is_owned_by_validation_before_metadata(self):
         publish = workflow('openclaw-macos-publish.yml')
         # The validation phase ends where packaging begins; provenance is captured after packaging.
         phase = publish.split('      - name: Release packaging guards\n', 1)[1].split('      - name: Package macOS smoke-test artifacts\n', 1)[0]
         steps = phase.split('      - name: ')[1:]
-        for resume, fail, expected in [('', False, ['release:check', 'release:openclaw:npm:check']),
-                                        ('', True, ['release:check']), ('123', False, [])]:
-            with self.subTest(resume=resume, fail=fail), tempfile.TemporaryDirectory() as td:
+        for fail, expected in [(False, ['release:check', 'release:openclaw:npm:check']),
+                               (True, ['release:check'])]:
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 pnpm = root / 'pnpm'
                 pnpm.write_text('''#!/usr/bin/env python3
@@ -180,12 +290,6 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                 git.chmod(0o755)
                 result_code = 0
                 for step in steps:
-                    self.assertIn(
-                        "if: ${{ steps.recovery_request.outputs.run_id == '' }}",
-                        step,
-                    )
-                    if resume:
-                        continue
                     run = step.split('        run: ', 1)[1]
                     script = ('\n'.join(line[10:] for line in run.splitlines()[1:])
                               if run.startswith('|\n') else run.splitlines()[0])
@@ -294,85 +398,55 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                 gh.write_text('#!/usr/bin/env python3\nimport os\nprint(os.environ["PRODUCER"])\n')
                 gh.chmod(0o755)
                 env = dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}', RUNNER_TEMP=td,
-                           GITHUB_REPOSITORY='openclaw/releases', RESUME_RUN_ID='123',
+                           GITHUB_REPOSITORY='openclaw/releases', RESUME_RUN_ID='123', MANUAL_RECOVERY='true',
                            RESUME_RUN_ATTEMPT='2', PRODUCER=json.dumps(producer | changes))
                 result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, accepted, result.stderr)
 
     def test_recovery_calls_resume_without_reentering_build_steps(self):
         publish = workflow('openclaw-macos-publish.yml')
-        selection = 'Select notarization recovery checkpoint'
-        packaging = 'Build, sign, notarize, and package macOS release'
-        option = re.split(r'\n      \S', publish.split('      resume_notarization_variant:\n', 1)[1], maxsplit=1)[0]
-        self.assertIn('default: universal', option)
-        for selector, variant, run_id in product(['universal', 'arm64', 'x86_64', 'all'],
-                                                 ['universal', 'arm64', 'x86_64'], ['', '123']):
-            with self.subTest(selector=selector, variant=variant, run_id=run_id), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                output = root / 'selection'
-                context = {'inputs.resume_notarization_run_id': run_id,
-                           'inputs.resume_notarization_variant': selector, 'matrix.variant': variant}
-                env = dict(os.environ, GITHUB_OUTPUT=str(output))
-                env.update(step_environment(publish, selection, context))
-                selected = subprocess.run(['/bin/bash', '-e', '-o', 'pipefail', '-c',
-                                           step_script(publish, selection)], cwd=root, env=env,
-                                          capture_output=True, text=True)
-                self.assertEqual(selected.returncode, 0, selected.stderr)
-                effective_run = run_id if selector in ['all', variant] else ''
-                self.assertEqual(output.read_text(), f'run_id={effective_run}\n')
-                (root / 'scripts').mkdir()
-                package = root / 'scripts/package-mac-dist.sh'
-                package.write_text('''#!/usr/bin/env python3
-import json, os, pathlib, sys
-pathlib.Path('packager-called').write_text(json.dumps(sys.argv[1:]))
-sys.exit(int(os.environ['PACKAGE_EXIT']))
-''')
-                package.chmod(0o755)
-                suffix = '' if variant == 'universal' else f'-{variant}'
-                context.update({'steps.recovery_request.outputs.run_id': effective_run,
-                                'steps.package_version.outputs.value': '2026.8.2',
-                                'matrix.build_archs': 'all' if variant == 'universal' else variant,
-                                'env.SIGN_IDENTITY': 'fixture-only',
-                                'matrix.feed_url': f'https://example.invalid/appcast{suffix}.xml'})
-                env.update(step_environment(publish, packaging, context))
-                for status in ['0', '17']:
-                    result = subprocess.run(['/bin/bash', '-e', '-o', 'pipefail', '-c',
-                                             step_script(publish, packaging)], cwd=root,
-                                            env=env | {'PACKAGE_EXIT': status}, capture_output=True, text=True)
-                    self.assertEqual(result.returncode, int(status), result.stderr)
-                    self.assertEqual(json.loads((root / 'packager-called').read_text()),
-                                     ['--resume-notarization'] if effective_run else [])
-        # Job scheduling is itself the contract: a resume must never install or compile.
+        packaging = 'Resume notarization and package macOS artifacts'
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / 'scripts').mkdir()
+            package = root / 'scripts/package-mac-dist.sh'
+            package.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > calls\nexit "$PACKAGE_EXIT"\n')
+            package.chmod(0o755)
+            for exit_code in ['0', '17']:
+                result = subprocess.run(['bash', '-c', step_script(publish, packaging)], cwd=root,
+                                        env=dict(os.environ, PACKAGE_EXIT=exit_code), capture_output=True, text=True)
+                self.assertEqual(result.returncode, int(exit_code), result.stderr)
+                self.assertEqual((root / 'calls').read_text(), '--resume-notarization\n')
+        consumer = publish.split('  notarize_and_package:\n', 1)[1].split('  collect_preflight_artifacts:', 1)[0]
         for name in ['Checkout submodules (retry)', 'Setup pnpm', 'Install dependencies',
-                     'Prepare Apple Mermaid assets',
-                     'Cache SwiftPM', 'Release packaging guards', 'Build and verify release contents',
-                     'Validate release tag and package metadata']:
-            self.assertIn("if: ${{ steps.recovery_request.outputs.run_id == '' }}",
-                          step_source(publish, name))
+                     'Prepare Apple Mermaid assets', 'Cache SwiftPM', 'Release packaging guards',
+                     'Build and verify release contents', 'Validate release tag and package metadata']:
+            self.assertNotIn(f'name: {name}\n', consumer)
         for name in ['Verify notarization checkpoint producer', 'Download notarization checkpoint',
                      'Verify notarization checkpoint release binding', 'Restore checkpointed Sparkle tools']:
-            step = step_source(publish, name)
-            self.assertIn("if: ${{ steps.recovery_request.outputs.run_id != '' }}", step)
+            step = step_source(consumer, name)
+            self.assertIn("if: ${{ steps.packaging.outputs.complete == 'true' }}", step)
             self.assertNotIn('continue-on-error', step)
-        self.assertIn("(steps.recovery_request.outputs.run_id == '' || steps.recovery_verified.outcome == 'success')",
-                      step_source(publish, 'Preserve notarization recovery checkpoint'))
-        self.assertIn('environment: mac-release', publish.split('  build_sign_and_package:', 1)[1])
+        self.assertIn("steps.recovery_verified.outcome == 'success'", step_source(consumer, 'Preserve notarization recovery checkpoint'))
+        self.assertIn("environment: ${{ !inputs.smoke_test_only && 'mac-release' || '' }}", consumer)
 
     def test_recovery_artifact_names_match_existing_variant_checkpoints(self):
         publish = workflow('openclaw-macos-publish.yml')
         for variant, suffix in [('universal', ''), ('arm64', '-arm64'), ('x86_64', '-x86_64')]:
-            with self.subTest(variant=variant):
-                context = {'inputs.tag': 'v2026.8.2', 'matrix.artifact_suffix': suffix,
-                           'steps.recovery_request.outputs.run_id': '123',
-                           'inputs.resume_notarization_run_attempt': '2',
-                           'github.run_id': '123', 'github.run_attempt': '2'}
-                for step in ['Download notarization checkpoint', 'Upload notarization recovery checkpoint']:
-                    name = re.search(r'^          name: (.+)$', step_source(publish, step), re.MULTILINE)[1]
-                    self.assertEqual(render_expressions(name, context),
-                                     f'macos-notarization-v2026.8.2{suffix}-123-2')
+            for prefix in ['macos-notarization', 'macos-signed']:
+                with self.subTest(variant=variant, prefix=prefix):
+                    context = {'inputs.tag': 'v2026.8.2', 'matrix.artifact_suffix': suffix,
+                               'steps.packaging.outputs.run_id': '123', 'steps.packaging.outputs.attempt': '2',
+                               'steps.packaging.outputs.artifact_prefix': prefix,
+                               "steps.packaging.outputs.checkpoint_only == 'true' && 'macos-signed' || 'macos-notarization'": prefix,
+                               'github.run_id': '123', 'github.run_attempt': '2'}
+                    for step in ['Download notarization checkpoint', 'Upload notarization recovery checkpoint']:
+                        name = re.search(r'^          name: (.+)$', step_source(publish, step), re.MULTILINE)[1]
+                        self.assertEqual(render_expressions(name, context), f'{prefix}-v2026.8.2{suffix}-123-2')
         download = step_source(publish, 'Download notarization checkpoint')
-        self.assertIn('run-id: ${{ steps.recovery_request.outputs.run_id }}', download)
+        self.assertIn('run-id: ${{ steps.packaging.outputs.run_id }}', download)
         self.assertNotIn('pattern:', download)
+        self.assertNotIn('overwrite:', step_source(publish, 'Upload notarization recovery checkpoint'))
 
     def test_checkpoint_binding_fails_before_packager_for_wrong_release_or_source(self):
         script = step_script(workflow('openclaw-macos-publish.yml'), 'Verify notarization checkpoint release binding')
@@ -433,6 +507,7 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                                          script + '\nscripts/package-mac-dist.sh --resume-notarization\n'], cwd=root,
                                         env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
                                                  RUNNER_TEMP=td, RELEASE_TAG='v2026.8.2',
+                                                 PRETAG_SOURCE_SHA='', SMOKE_TEST_ONLY='false', MANUAL_RECOVERY='true',
                                                  EXPECTED_FEED_URL=feed,
                                                  FAIL_CHECKPOINT_HASH='1' if failure == 'hash-rejection' else '0',
                                                  PUBLIC_RELEASE_BRANCH='release/2026.8.2'),
@@ -499,7 +574,7 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
             clone = step_script(preparation, 'Clone selected public source')
             self.assertIn('git -C source rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}"', clone)
         self.assertIn('gh release view', promote)
-        self.assertIn('environment: mac-release', build)
+        self.assertIn("environment: ${{ !inputs.smoke_test_only && 'mac-release' || '' }}", build)
         self.assertIn('environment: mac-release', promote)
         self.assertIn('if: ${{ !inputs.preflight_only && !inputs.smoke_test_only }}', promote)
 
