@@ -166,15 +166,96 @@ class ExtendedStablePromotionTests(unittest.TestCase):
         self.assertNotIn('latest_published', JOB)
 
 
+class RegularPromotionTests(unittest.TestCase):
+    def run_promotion(self, mode='promote_beta_to_latest', beta='2026.9.6', missing=False,
+                      ref='refs/heads/main'):
+        job = WORKFLOW.split(f'\n  {mode}:\n', 1)[1].split('\n  sync_stable_dist_tags:', 1)[0].split('\n  promote_extended_stable:', 1)[0]
+        steps = (('Require main workflow ref for promotion', 'Validate stable tag input format',
+                  'Validate public stable tag exists', 'Validate npm dist-tags',
+                  'Promote beta to latest') if mode == 'promote_beta_to_latest' else
+                 ('Require main workflow ref for dist-tag sync', 'Validate stable tag input format',
+                  'Validate public stable tag exists', 'Validate published stable version',
+                  'Sync stable dist-tags'))
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / 'latest').write_text('2026.9.5')
+            npm = r'''#!/usr/bin/env python3
+import os, pathlib, sys
+args = sys.argv[1:]
+if args == ['view', 'openclaw', 'dist-tags.beta']:
+    print(os.environ['TEST_BETA'])
+elif args == ['view', 'openclaw', 'dist-tags.latest']:
+    print(pathlib.Path('latest').read_text())
+elif args == ['view', 'openclaw@2026.9.6', 'version']:
+    sys.exit(int(os.environ['TEST_MISSING']))
+elif args == ['dist-tag', 'add', 'openclaw@2026.9.6', 'latest']:
+    config = pathlib.Path(os.environ['NPM_CONFIG_USERCONFIG'])
+    assert config.stat().st_mode & 0o777 == 0o600
+    assert config.read_text() == '//registry.npmjs.org/:_authToken=fixture-token\n'
+    pathlib.Path('config-path').write_text(str(config))
+    pathlib.Path('latest').write_text('2026.9.6')
+    pathlib.Path('write').write_text(' '.join(args))
+else:
+    raise AssertionError(args)
+'''
+            for name, content in {'npm': npm, 'git': '#!/bin/sh\nexit 0\n'}.items():
+                (root / name).write_text(content)
+                (root / name).chmod(0o755)
+            env = dict(os.environ, PATH=td + os.pathsep + os.environ['PATH'],
+                       WORKFLOW_REF=ref, RELEASE_TAG='v2026.9.6', RELEASE_VERSION='2026.9.6',
+                       OPENCLAW_REPOSITORY='openclaw/openclaw', TEST_BETA=beta,
+                       TEST_MISSING=str(int(missing)), NODE_AUTH_TOKEN='fixture-token',
+                       GITHUB_ENV=str(root / 'env'), GITHUB_OUTPUT=str(root / 'output'))
+            for step in steps:
+                result = subprocess.run(['bash', '-c', script(step, job)], cwd=root,
+                                        env=env, capture_output=True, text=True, timeout=30)
+                if result.returncode:
+                    break
+            if (root / 'config-path').exists():
+                self.assertFalse(Path((root / 'config-path').read_text()).exists())
+            return result, (root / 'latest').read_text(), (root / 'write').exists()
+
+    def test_existing_beta_promotes_without_republishing(self):
+        result, latest, wrote = self.run_promotion()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(latest, '2026.9.6')
+        self.assertTrue(wrote)
+
+    def test_wrong_beta_missing_package_and_nonmain_do_not_mutate(self):
+        for change in ({'beta': '2026.9.7-beta.1'}, {'missing': True},
+                       {'ref': 'refs/heads/feature'}):
+            with self.subTest(change=change):
+                result, latest, wrote = self.run_promotion(**change)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(latest, '2026.9.5')
+                self.assertFalse(wrote)
+
+    def test_recovery_can_restore_latest_with_a_newer_beta(self):
+        result, latest, wrote = self.run_promotion(mode='sync_stable_dist_tags', beta='2026.9.7-beta.1')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(latest, '2026.9.6')
+        self.assertTrue(wrote)
+
+
 class RegularChannelAdmissionTests(unittest.TestCase):
-    def test_dist_tag_maintenance_cannot_promote_regular_stable(self):
-        # These public dispatch modes bypass the source repository's qualification gates.
+    def test_manual_stable_modes_enforce_patch_boundary(self):
         for mode in ('promote_beta_to_latest', 'sync_stable_dist_tags'):
-            self.assertNotIn(mode, WORKFLOW)
-        self.assertNotRegex(WORKFLOW, r'npm dist-tag add[^\n]+ latest(?:\s|$)')
+            job = WORKFLOW.split(f'\n  {mode}:\n', 1)[1].split('\n  sync_stable_dist_tags:', 1)[0]
+            for version, allowed in (('2026.9.1', True), ('2026.9.32', True),
+                                     ('2026.9.32-1', True), ('2026.9.33', False),
+                                     ('2026.9.34', False), ('2026.9.100', False),
+                                     ('2026.9.33-beta.1', False)):
+                with self.subTest(mode=mode, version=version), tempfile.TemporaryDirectory() as td:
+                    env_file = Path(td) / 'env'
+                    result = subprocess.run(['bash', '-c', script('Validate stable tag input format', job)],
+                                            env=dict(os.environ, RELEASE_TAG='v' + version,
+                                                     GITHUB_ENV=str(env_file)), capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    if not allowed:
+                        self.assertFalse(env_file.exists(), 'invalid target admitted to later steps')
 
     def test_scheduled_sync_rejects_extended_stable_latest_before_git_lookup(self):
-        job = WORKFLOW.split('\n  sync_beta_to_stable:\n', 1)[1].split('\n  promote_extended_stable:', 1)[0]
+        job = WORKFLOW.split('\n  sync_beta_to_stable:\n', 1)[1].split('\n  promote_beta_to_latest:', 1)[0]
         for version, allowed in (('2026.9.32', True), ('2026.9.32-1', True),
                                  ('2026.9.33', False), ('2026.9.34', False),
                                  ('2026.9.100', False), ('2026.9.33-beta.1', False)):
