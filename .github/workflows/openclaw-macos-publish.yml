@@ -25,6 +25,11 @@ on:
         required: true
         default: false
         type: boolean
+      ignore_checkpoints:
+        description: Build every variant fresh even when a resumable checkpoint exists for this tag and source
+        required: true
+        default: false
+        type: boolean
       preflight_run_id:
         description: Existing successful mac preflight workflow run id to promote without rebuilding or renotarizing
         required: false
@@ -42,7 +47,7 @@ on:
         required: false
         type: string
       resume_notarization_variant:
-        description: Checkpoints to resume; unselected variants build normally
+        description: Checkpoints to pin; unselected variants use automatic checkpoint discovery
         required: true
         default: universal
         type: choice
@@ -82,8 +87,11 @@ jobs:
       checkpoint_supported: ${{ steps.source.outputs.supported }}
       build_matrix: ${{ steps.source.outputs.build_matrix }}
       package_matrix: ${{ steps.source.outputs.package_matrix }}
+      build_needed: ${{ steps.source.outputs.build_needed }}
+      resume_plan: ${{ steps.source.outputs.resume_plan }}
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
     steps:
       - name: Forbid pretag artifact promotion
@@ -240,31 +248,22 @@ jobs:
         id: source
         if: ${{ steps.reuse_preflight.outputs.value != 'true' }}
         env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
           RESUME_RUN_ID: ${{ inputs.resume_notarization_run_id }}
+          RESUME_RUN_ATTEMPT: ${{ inputs.resume_notarization_run_attempt }}
           RESUME_VARIANT: ${{ inputs.resume_notarization_variant }}
+          IGNORE_CHECKPOINTS: ${{ inputs.ignore_checkpoints }}
+          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+          SMOKE_TEST_ONLY: ${{ inputs.smoke_test_only }}
+          PRETAG_SOURCE_SHA: ${{ inputs.pretag_source_sha }}
+          WORKFLOW_REF: ${{ github.ref }}
         run: |
-          python3 <<'PYTHON'
-          import json, os, pathlib, subprocess
-          variants = []
-          for variant in ['universal', 'arm64', 'x86_64']:
-              suffix = '' if variant == 'universal' else f'-{variant}'
-              appcast = f'appcast{suffix}.xml'
-              variants.append(dict(variant=variant, build_archs='all' if variant == 'universal' else variant,
-                                   artifact_suffix=suffix, appcast_name=appcast,
-                                   feed_url=f'https://raw.githubusercontent.com/openclaw/openclaw/main/{appcast}'))
-          fresh = [v for v in variants if not os.environ['RESUME_RUN_ID'] or
-                   os.environ['RESUME_VARIANT'] not in ['all', v['variant']]]
-          sha = subprocess.check_output(['git', '-C', 'source', 'rev-parse', 'HEAD'], text=True).strip()
-          supported = '--checkpoint-only)' in pathlib.Path('source/scripts/package-mac-dist.sh').read_text()
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'sha={sha}\nsupported={str(supported).lower()}\n')
-              output.write(f'build_matrix={json.dumps({"include": fresh})}\n')
-              output.write(f'package_matrix={json.dumps({"include": variants})}\n')
-          PYTHON
+          python3 release-tools/scripts/resume-macos-checkpoints.py
 
   build_and_sign:
     needs: prepare
-    if: ${{ needs.prepare.outputs.reuse_preflight != 'true' && !(inputs.resume_notarization_run_id != '' && inputs.resume_notarization_variant == 'all') }}
+    if: ${{ needs.prepare.outputs.reuse_preflight != 'true' && needs.prepare.outputs.build_needed == 'true' }}
     runs-on: macos-26
     strategy:
       fail-fast: false
@@ -620,6 +619,38 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - &write_resume_index
+        name: Write resume index
+        if: ${{ always() && steps.recovery_checkpoint.outcome == 'success' && !inputs.smoke_test_only }}
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          ARTIFACT_VARIANT: ${{ matrix.variant }}
+          SOURCE_SHA: ${{ steps.packaging.outputs.source_sha }}
+          CHECKPOINT_ARTIFACT: ${{ steps.packaging.outputs.checkpoint_only == 'true' && 'macos-signed' || 'macos-notarization' }}-${{ inputs.tag }}${{ matrix.artifact_suffix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          ARTIFACT_PREFIX: ${{ steps.packaging.outputs.checkpoint_only == 'true' && 'macos-signed' || 'macos-notarization' }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const e = process.env;
+          const data = { schemaVersion: 1, releaseTag: e.RELEASE_TAG, variant: e.ARTIFACT_VARIANT,
+            sourceSha: e.SOURCE_SHA, checkpointArtifact: e.CHECKPOINT_ARTIFACT, artifactPrefix: e.ARTIFACT_PREFIX,
+            producerRunId: Number(e.GITHUB_RUN_ID), producerRunAttempt: Number(e.GITHUB_RUN_ATTEMPT),
+            producerWorkflowSha: e.GITHUB_SHA };
+          fs.mkdirSync(`${e.RUNNER_TEMP}/macos-resume`, { recursive: true });
+          fs.writeFileSync(`${e.RUNNER_TEMP}/macos-resume/resume.json`, `${JSON.stringify(data)}\n`);
+          NODE
+
+      - &upload_resume_index
+        name: Upload resume index
+        if: ${{ always() && steps.recovery_checkpoint.outcome == 'success' && !inputs.smoke_test_only }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-resume-${{ inputs.tag }}-${{ matrix.variant }}-${{ steps.packaging.outputs.source_sha }}
+          path: ${{ runner.temp }}/macos-resume/resume.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 30
+
       - &package_output_0
         name: Name architecture-specific artifacts
         if: ${{ steps.packaging.outputs.complete == 'true' }}
@@ -920,17 +951,19 @@ jobs:
           EXPECTED_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           CHECKPOINT_SUPPORTED: ${{ needs.prepare.outputs.checkpoint_supported }}
           HANDOFF: ${{ needs.build_and_sign.outputs[matrix.variant] }}
-          MANUAL_RUN_ID: ${{ inputs.resume_notarization_run_id }}
-          MANUAL_ATTEMPT: ${{ inputs.resume_notarization_run_attempt }}
-          MANUAL_VARIANT: ${{ inputs.resume_notarization_variant }}
+          RESUME_PLAN: ${{ needs.prepare.outputs.resume_plan }}
           ARTIFACT_VARIANT: ${{ matrix.variant }}
         run: |
           node <<'NODE'
           const fs = require('node:fs');
           const e = process.env;
-          const manual = Boolean(e.MANUAL_RUN_ID) && ['all', e.ARTIFACT_VARIANT].includes(e.MANUAL_VARIANT);
+          const plan = (JSON.parse(e.RESUME_PLAN || '{}'))[e.ARTIFACT_VARIANT];
+          const manual = Boolean(plan);
+          if (manual && !['macos-notarization', 'macos-signed'].includes(plan.prefix)) {
+            throw new Error('Invalid checkpoint artifact prefix');
+          }
           const data = manual ? { mode: 'manual', sourceSha: e.EXPECTED_SOURCE_SHA,
-            supported: e.CHECKPOINT_SUPPORTED === 'true', runId: e.MANUAL_RUN_ID, attempt: e.MANUAL_ATTEMPT }
+            supported: e.CHECKPOINT_SUPPORTED === 'true', runId: plan.runId, attempt: plan.attempt }
             : JSON.parse(e.HANDOFF);
           if (!/^[a-f0-9]{40}$/.test(data.sourceSha) || typeof data.supported !== 'boolean' ||
               !['manual', 'checkpoint', 'legacy'].includes(data.mode) ||
@@ -938,7 +971,6 @@ jobs:
             throw new Error('Invalid build handoff');
           }
           if (data.sourceSha !== e.EXPECTED_SOURCE_SHA || data.supported !== (e.CHECKPOINT_SUPPORTED === 'true') || (data.mode === 'manual') !== manual ||
-              (manual && (data.runId !== e.MANUAL_RUN_ID || data.attempt !== e.MANUAL_ATTEMPT)) ||
               (!manual && (data.runId !== e.GITHUB_RUN_ID || Number(data.attempt) > Number(e.GITHUB_RUN_ATTEMPT))) ||
               (!manual && (data.mode === 'checkpoint') !== data.supported)) {
             throw new Error('Build handoff run, attempt or mode mismatch');
@@ -947,7 +979,7 @@ jobs:
           const outputs = { complete: resume, checkpoint_only: false, manual,
             needs_signing: manual && !data.supported, source_sha: data.sourceSha,
             run_id: data.runId, attempt: data.attempt,
-            artifact_prefix: manual ? 'macos-notarization' : 'macos-signed' };
+            artifact_prefix: manual ? plan.prefix : 'macos-signed' };
           for (const [key, value] of Object.entries(outputs)) {
             fs.appendFileSync(e.GITHUB_OUTPUT, `${key}=${value}\n`);
           }
@@ -1182,6 +1214,8 @@ jobs:
           python3 scripts/lib/mac-notarization-recovery.py seal "$checkpoint"
 
       - *upload_checkpoint
+      - *write_resume_index
+      - *upload_resume_index
 
       - name: Restore checkpointed Sparkle tools
         if: ${{ steps.packaging.outputs.complete == 'true' }}
@@ -1352,11 +1386,18 @@ jobs:
           path: release-tools
           persist-credentials: false
 
-      - name: Ensure matching public GitHub release exists
+      - name: Ensure matching GitHub release exists (draft or public)
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" >/dev/null
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret." >&2
+            exit 1
+          fi
+          RELEASE_JSON="$(gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" --json tagName,isDraft,url)"
+          printf '%s' "$RELEASE_JSON" | node -e 'const fs = require("node:fs"); const release = JSON.parse(fs.readFileSync(0, "utf8")); if (release.tagName !== process.env.RELEASE_TAG) throw new Error("GitHub release tag does not match requested tag"); console.log(`Attaching to ${release.isDraft ? "draft" : "public"} release ${release.url}; the npm publisher flips it public.`);'
 
       - name: Determine release channel
         id: release_channel
@@ -1711,6 +1752,7 @@ jobs:
             echo "- Version: \`${VERSION}\`"
             echo
             echo "This real publish reused preflight artifacts from run \`${PREFLIGHT_RUN_ID}\`; no rebuild, signing, or notarization work ran in this publish job."
+            echo "Assets are attached to the GitHub release, which may still be a draft; the core npm publisher flips it public."
             echo
             if [[ "$IS_BETA" != "true" ]]; then
               echo "Stable appcast publish runs automatically after public release assets are verified. If direct \`main\` push is blocked, the workflow opens or updates an appcast PR."
