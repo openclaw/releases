@@ -26,13 +26,12 @@ maintenance, and durable release evidence separate from the product source repo.
   Swift test lane for an existing OpenClaw tag.
 - `.github/workflows/openclaw-macos-publish.yml` prepares and promotes signed
   macOS release artifacts for an existing OpenClaw tag.
-- `.github/workflows/openclaw-npm-dist-tags.yml` enforces the beta floor:
-  on manual `sync_beta_to_stable` dispatch and daily as a backstop,
+- `.github/workflows/openclaw-npm-dist-tags.yml` promotes or syncs npm `latest`
+  for OpenClaw and enforces the beta floor: after every successful `latest`
+  mutation, on manual `sync_beta_to_stable` dispatch, and daily as a backstop,
   `beta` for `openclaw` and every published official plugin is advanced to at
   least its own `latest`; an equal or newer `beta` is preserved. The plugin
   inventory is read as data from `openclaw/openclaw` `main` manifests.
-  It cannot change regular stable `latest`; use the qualified publication workflow
-  in `openclaw/openclaw` with stable/full validation, soak, and blocking performance.
   Its manual `promote_extended_stable` mode promotes an already-published core version
   to `extended-stable`, without changing other selectors.
 - `.github/workflows/openclaw-release-evidence.yml` records manually supplied
@@ -52,6 +51,36 @@ validation; native app packaging retains its own matching runtime build.
 Promotion attaches assets to the matching GitHub release whether it is still a
 draft or already public. The core npm publisher flips it public.
 
+### Promote a validated beta to npm latest
+
+After the exact final release has passed stable/full validation, including soak
+and blocking performance, promote its existing npm package from `beta` to
+`latest`:
+
+```bash
+gh workflow run openclaw-npm-dist-tags.yml --repo openclaw/releases --ref main \
+  -f mode=promote_beta_to_latest -f tag=vYYYY.M.PATCH
+```
+
+The operator must verify the successful validation evidence before dispatch.
+This action checks the public Git tag, published npm version, and current `beta`
+selector; it does not run or authenticate stable validation. Dispatch does not
+waive failed checks, soak, or performance requirements. Follow the
+[source repository release procedure](https://github.com/openclaw/openclaw/blob/main/docs/reference/RELEASING.md)
+for qualification.
+
+The target must be a final regular version with patch below `33`, optionally
+with a correction suffix. A `-beta.N` version cannot be promoted with this
+action; prepare and qualify its final release version first. Promotion reuses
+the published package without rebuilding or republishing it. After `latest`
+changes, the beta-floor job runs for core and official plugins, preserving any
+newer beta.
+
+For selector recovery after qualification, `mode=sync_stable_dist_tags` accepts
+an exact already-published final version without requiring `beta` to point at it.
+The same operator validation prerequisite applies. Neither mode changes the
+source repository's validation policy or restores publication waivers.
+
 ### Promote a version to npm extended-stable
 
 In **Actions → OpenClaw NPM Dist-Tag Operations → Run workflow**, choose
@@ -67,7 +96,8 @@ The action verifies that the Git tag exists in `openclaw/openclaw` and that the
 exact `openclaw` version is already published on the public npm registry. It
 supports both newer and older published extended-stable final versions with patch
 `33` or higher and no suffix. Extended-stable fixes increment the patch (`33`,
-`34`, `35`, and so on); they do not use correction suffixes. The scheduled beta floor rejects patch `33` or higher.
+`34`, `35`, and so on); they do not use correction suffixes. Regular stable/beta
+promotion and sync reject patch `33` or higher, including the scheduled beta floor.
 Choosing an older version performs a rollback through the same promotion action. Prereleases and floating selectors are rejected; new-publication
 eligibility rules do not apply to an already-published target; the channel/patch
 boundary still applies.
