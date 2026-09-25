@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Attach promoted macOS assets to draft or public GitHub releases using the release token; the core npm publisher makes the release public.
+
+- Automatically resume signed macOS preflights from matching per-variant checkpoints, with exact source indexes, explicit run/attempt overrides, and a fresh-build option.
+
 - Split macOS signing from notarization for sources with the checkpoint interface, allowing failed notarization jobs and their collector to rerun from the original signed bytes while preserving older-source packaging and manual recovery.
 
 - Allow macOS notarization recovery for arm64, x86_64, or all variants while preserving existing universal recovery and checkpoint identity checks.

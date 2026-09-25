@@ -48,6 +48,9 @@ An existing seed feed alone is not valid release output. The preflight uses
 `pnpm release:check` to build and validate package contents once before metadata
 validation; native app packaging retains its own matching runtime build.
 
+Promotion attaches assets to the matching GitHub release whether it is still a
+draft or already public. The core npm publisher flips it public.
+
 ### Promote a version to npm extended-stable
 
 In **Actions → OpenClaw NPM Dist-Tag Operations → Run workflow**, choose
@@ -109,12 +112,20 @@ commit is therefore **not** equivalent for artifact promotion: finalize the
 changelog before starting, or rerun the producer to rebuild, sign, and notarize
 the new final source. Never relabel previously signed bytes. When the eventual
 tag selects the unchanged pretag SHA, use the successful preflight and validation
-run IDs in ordinary promotion after the public GitHub release exists.
+run IDs in ordinary promotion after the matching GitHub release exists (draft
+or public).
 
 ### Resume a failed macOS notarization
 
-For sources supporting `package-mac-dist.sh --checkpoint-only`, use **Re-run
-failed jobs** first (`gh run rerun <run-id> --failed --repo openclaw/releases`).
+A new signed preflight from `main` for the same tag and source automatically
+resumes the newest resumable checkpoint per variant. Discovery uses exact
+`macos-resume-<tag>-<variant>-<sha>` index artifacts from failed or cancelled
+`main` dispatches of this workflow. Successful preflights are promoted, not
+resumed. Set `ignore_checkpoints=true` to build fresh instead of discovering
+checkpoints. Smoke, pretag, non-main, and promotion runs skip discovery.
+
+For sources supporting `package-mac-dist.sh --checkpoint-only`, **Re-run
+failed jobs** also works (`gh run rerun <run-id> --failed --repo openclaw/releases`).
 The `build_and_sign` matrix builds, signs, audits, and retains the app, symbols,
 and signed DMG before contacting Apple. The separate `notarize_and_package`
 matrix verifies that checkpoint, notarizes and staples the retained bytes, and
@@ -131,7 +142,7 @@ actual build attempt and exact source SHA, so a later workflow attempt consumes
 the original successful build, even if the source branch has advanced. Recovery
 output is retained separately; it never overwrites the build input. Both have
 30-day retention. Sources without `--checkpoint-only` keep the single-job
-packaging path and the manual recovery procedure below.
+packaging path and can resume retained checkpoints on a new preflight.
 
 Signed preflights retain a `macos-notarization-<tag>-<run-id>-<attempt>` Actions
 artifact for universal builds and `macos-notarization-<tag>-<variant>-<run-id>-<attempt>`
@@ -140,8 +151,10 @@ contains the signed app, symbols, available DMG, Apple submission records, and
 the producer's Sparkle tools. Private signing keys are never included. Retention
 is 30 days; keep these payloads in Actions rather than the evidence ledger.
 
-Dispatch another signed preflight from `main`, using the checkpoint's exact
-public source commit and failed run attempt:
+Explicit `resume_notarization_*` inputs pin a specific run and attempt for the
+selected variants, even with `ignore_checkpoints=true`. Checkpoints created
+before resume indexes were added are reachable only through these explicit
+inputs. Use the checkpoint's exact public source commit and failed run attempt:
 
 ```bash
 gh workflow run openclaw-macos-publish.yml --repo openclaw/releases --ref main \
@@ -154,10 +167,10 @@ gh workflow run openclaw-macos-publish.yml --repo openclaw/releases --ref main \
 
 The default `resume_notarization_variant=universal` preserves existing recovery
 commands. Set it to `arm64` or `x86_64` to resume that variant, or `all` to resume
-all three checkpoints from the same run and attempt. Unselected variants build
-normally. Each selected variant requires its exact checkpoint; a missing or
-expired checkpoint fails that job without rebuilding. Use `all` when all three
-checkpoints exist to avoid rebuilding any variant.
+all three checkpoints from the same run and attempt. Unselected variants use
+automatic discovery, then build if none match. Each pinned variant requires its
+exact checkpoint; a missing or expired checkpoint fails that job without
+rebuilding. Use `all` when all three checkpoints exist to avoid rebuilding any variant.
 
 Recovery uses the same release authorization and `mac-release` environment. It verifies the producer,
 release/source binding, checkpoint hashes, the app's variant feed and signing
@@ -170,12 +183,15 @@ job. The original Sparkle tools generate the final appcast.
 
 Use the successful recovery run as `preflight_run_id` for ordinary promotion,
 together with the successful validation run for the same source. Recovery does
-not replace validation or allow direct promotion from a failed run. Older source
-commits without the recovery interface, expired/missing checkpoints, and changed
-source commits fail explicitly; recovery never falls back to rebuilding.
+not replace validation or allow direct promotion from a failed run. Once selected,
+a checkpoint must pass every recovery check; missing/expired payloads, unsupported
+recovery interfaces, or changed source commits fail without rebuilding. Discovery
+builds fresh when no valid index and live checkpoint match; API failures stop
+preparation.
 
-The scripts use only Node.js built-ins and require no dependency installation or
-build step. Run local checks with Node.js 24 and Python 3:
+The scripts use only Node.js built-ins and the Python standard library; no
+dependency installation or build step is needed. Run local checks with Node.js 24
+and Python 3:
 
 ```bash
 node --check scripts/openclaw-release-evidence.mjs

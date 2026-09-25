@@ -60,11 +60,24 @@ class MacOSWorkflowTests(unittest.TestCase):
                 git = root / 'git'
                 git.write_text('#!/bin/sh\nprintf "%s\\n" ' + 'a' * 40 + '\n')
                 git.chmod(0o755)
+                gh = root / 'gh'
+                gh.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"total_count":0,"artifacts":[]}\'\n')
+                gh.chmod(0o755)
+                (root / 'release-tools').symlink_to(ROOT, target_is_directory=True)
                 output = root / 'output'
+                step_env = step_environment(source, 'Pin packaging source and variants', {
+                    'github.token': 'fixture-token', 'inputs.tag': 'v2026.8.2',
+                    'inputs.resume_notarization_run_id': '123' if selector else '',
+                    'inputs.resume_notarization_run_attempt': '2' if selector else '',
+                    'inputs.resume_notarization_variant': selector or 'universal',
+                    'inputs.ignore_checkpoints': 'false', 'inputs.preflight_only': 'true',
+                    'inputs.smoke_test_only': 'false', 'inputs.pretag_source_sha': '',
+                    'github.ref': 'refs/heads/main',
+                })
                 result = subprocess.run(['bash', '-c', script], cwd=root,
                                         env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
-                                                 RESUME_RUN_ID='123' if selector else '',
-                                                 RESUME_VARIANT=selector or 'universal', GITHUB_OUTPUT=str(output)),
+                                                 GITHUB_REPOSITORY='openclaw/releases',
+                                                 GITHUB_OUTPUT=str(output), **step_env),
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 values = dict(line.split('=', 1) for line in output.read_text().splitlines())
@@ -75,6 +88,10 @@ class MacOSWorkflowTests(unittest.TestCase):
                 self.assertEqual([v['variant'] for v in all_variants], ['universal', 'arm64', 'x86_64'])
                 self.assertEqual([v['variant'] for v in fresh], [v['variant'] for v in all_variants
                                  if selector not in ['all', v['variant']]])
+                self.assertEqual(values['build_needed'], 'false' if selector == 'all' else 'true')
+                self.assertEqual(json.loads(values['resume_plan']), {
+                    v['variant']: dict(runId='123', attempt='2', prefix='macos-notarization')
+                    for v in all_variants if selector in ['all', v['variant']]})
                 for variant in all_variants:
                     self.assertTrue(variant['feed_url'].endswith('/' + variant['appcast_name']))
 
@@ -106,8 +123,7 @@ class MacOSWorkflowTests(unittest.TestCase):
             with self.subTest(variant=variant, changes=changes), tempfile.TemporaryDirectory() as td:
                 output = Path(td) / 'output'
                 env = dict(os.environ, HANDOFF=json.dumps(handoff | changes), EXPECTED_SOURCE_SHA='a' * 40,
-                           CHECKPOINT_SUPPORTED='true', MANUAL_RUN_ID='', MANUAL_ATTEMPT='',
-                           MANUAL_VARIANT='universal', ARTIFACT_VARIANT=variant,
+                           CHECKPOINT_SUPPORTED='true', RESUME_PLAN='{}', ARTIFACT_VARIANT=variant,
                            GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2', GITHUB_OUTPUT=str(output))
                 result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, accepted, result.stderr)
@@ -126,8 +142,10 @@ class MacOSWorkflowTests(unittest.TestCase):
             with self.subTest(supported=supported, variant=variant), tempfile.TemporaryDirectory() as td:
                 output = Path(td) / 'output'
                 env = dict(os.environ, HANDOFF='', EXPECTED_SOURCE_SHA='a' * 40,
-                           CHECKPOINT_SUPPORTED=str(supported).lower(), MANUAL_RUN_ID='789', MANUAL_ATTEMPT='4',
-                           MANUAL_VARIANT='all', ARTIFACT_VARIANT=variant,
+                           CHECKPOINT_SUPPORTED=str(supported).lower(),
+                           RESUME_PLAN=json.dumps({v: dict(runId='789', attempt='4', prefix='macos-notarization')
+                                                   for v in ['universal', 'arm64', 'x86_64']}),
+                           ARTIFACT_VARIANT=variant,
                            GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1', GITHUB_OUTPUT=str(output))
                 result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -142,7 +160,79 @@ class MacOSWorkflowTests(unittest.TestCase):
                       step_source(source, 'Write notary and Sparkle key files'))
         before_promote = source.split('  promote_release_artifacts:', 1)[0]
         self.assertNotIn('secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN', before_promote)
-        self.assertIn("inputs.resume_notarization_variant == 'all'", source.split('  build_and_sign:', 1)[1])
+        self.assertIn("needs.prepare.outputs.build_needed == 'true'", source.split('  build_and_sign:', 1)[1])
+
+    def test_resume_plan_selects_only_its_variant_and_validates_prefix(self):
+        source = workflow('openclaw-macos-publish.yml')
+        name = 'Select immutable variant handoff'
+        self.assertIn('RESUME_PLAN: ${{ needs.prepare.outputs.resume_plan }}', step_source(source, name))
+        handoff = dict(sourceSha='a' * 40, supported=True, mode='checkpoint', runId='123', attempt='1')
+        cases = [('arm64', 'macos-signed', '999', True),
+                 ('arm64', 'macos-notarization', '999', True), ('arm64', 'other', '123', False),
+                 ('universal', 'macos-signed', '123', True), ('universal', 'macos-signed', '999', False)]
+        for variant, prefix, run_id, accepted in cases:
+            with self.subTest(variant=variant, prefix=prefix, run_id=run_id), tempfile.TemporaryDirectory() as td:
+                output = Path(td) / 'output'
+                env = dict(os.environ, HANDOFF=json.dumps(handoff | {'runId': run_id}), EXPECTED_SOURCE_SHA='a' * 40,
+                           CHECKPOINT_SUPPORTED='true', ARTIFACT_VARIANT=variant,
+                           RESUME_PLAN=json.dumps({'arm64': dict(runId='789', attempt='4', prefix=prefix)}),
+                           GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2', GITHUB_OUTPUT=str(output))
+                result = subprocess.run(['bash', '-c', step_script(source, name)], env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual(output.exists(), accepted)
+                if accepted:
+                    values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                    manual = variant == 'arm64'
+                    self.assertEqual(values['manual'], str(manual).lower())
+                    self.assertEqual(values['artifact_prefix'], prefix if manual else 'macos-signed')
+                    self.assertEqual(values['run_id'], '789' if manual else '123')
+                    self.assertEqual(values['attempt'], '4' if manual else '1')
+
+    def test_resume_indexes_follow_checkpoints_with_exact_provenance(self):
+        source = workflow('openclaw-macos-publish.yml')
+        prepare = source.split('  prepare:', 1)[1].split('  build_and_sign:', 1)[0]
+        self.assertIn('    permissions:\n      actions: read\n      contents: read', prepare)
+        self.assertIn('build_needed: ${{ steps.source.outputs.build_needed }}', prepare)
+        self.assertIn('resume_plan: ${{ steps.source.outputs.resume_plan }}', prepare)
+        self.assertRegex(source, r'ignore_checkpoints:\n        description: [^\n]+\n'
+                                r'        required: true\n        default: false\n        type: boolean')
+        build = source.split('  build_and_sign:', 1)[1].split('  notarize_and_package:', 1)[0]
+        self.assertIn("if: ${{ needs.prepare.outputs.reuse_preflight != 'true' && needs.prepare.outputs.build_needed == 'true' }}",
+                      build)
+        for job, variant, prefix in product(['build_and_sign', 'notarize_and_package'],
+                                            ['universal', 'arm64', 'x86_64'],
+                                            ['macos-signed', 'macos-notarization']):
+            with self.subTest(job=job, variant=variant, prefix=prefix), tempfile.TemporaryDirectory() as td:
+                body = re.split(r'\n  \w+:', source.split(f'  {job}:', 1)[1], maxsplit=1)[0]
+                names = re.findall(r'^      - name: (.+)$', body, re.M)
+                offset = names.index('Upload notarization recovery checkpoint')
+                self.assertEqual(names[offset + 1:offset + 3], ['Write resume index', 'Upload resume index'])
+                suffix = '' if variant == 'universal' else f'-{variant}'
+                context = {'inputs.tag': 'v2026.8.2', 'matrix.variant': variant, 'matrix.artifact_suffix': suffix,
+                           'steps.packaging.outputs.source_sha': 'a' * 40,
+                           "steps.packaging.outputs.checkpoint_only == 'true' && 'macos-signed' || 'macos-notarization'": prefix,
+                           'github.run_id': '123', 'github.run_attempt': '2'}
+                for name in ['Write resume index', 'Upload resume index']:
+                    self.assertIn("if: ${{ always() && steps.recovery_checkpoint.outcome == 'success' && !inputs.smoke_test_only }}",
+                                  step_source(body, name))
+                upload = step_source(body, 'Upload resume index')
+                for value in ['uses: actions/upload-artifact@v7', 'overwrite: true', 'retention-days: 30',
+                              'if-no-files-found: error', 'path: ${{ runner.temp }}/macos-resume/resume.json']:
+                    self.assertIn(value, upload)
+                index_name = re.search(r'^          name: (.+)$', upload, re.M)[1]
+                self.assertEqual(render_expressions(index_name, context), f'macos-resume-v2026.8.2-{variant}-' + 'a' * 40)
+                checkpoint = re.search(r'^          name: (.+)$',
+                                       step_source(body, 'Upload notarization recovery checkpoint'), re.M)[1]
+                env = dict(os.environ, RUNNER_TEMP=td, GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2', GITHUB_SHA='b' * 40,
+                           **step_environment(body, 'Write resume index', context))
+                result = subprocess.run(['bash', '-c', step_script(body, 'Write resume index')], env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads((Path(td) / 'macos-resume/resume.json').read_text()), {
+                    'schemaVersion': 1, 'releaseTag': 'v2026.8.2', 'variant': variant, 'sourceSha': 'a' * 40,
+                    'checkpointArtifact': render_expressions(checkpoint, context), 'artifactPrefix': prefix,
+                    'producerRunId': 123, 'producerRunAttempt': 2, 'producerWorkflowSha': 'b' * 40})
 
     def test_capture_provenance_uses_each_variant_step_environment(self):
         source = workflow('openclaw-macos-publish.yml')
@@ -573,6 +663,42 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                                     if bool(re.search(call['args'][-1], test)) == (call['phase'] == 'named')]
                         self.assertEqual(selected, [profile], test)
 
+    def test_promotion_accepts_draft_or_public_release_with_release_token(self):
+        source = workflow('openclaw-macos-publish.yml')
+        name = 'Ensure matching GitHub release exists (draft or public)'
+        release = dict(tagName='v2026.8.2', isDraft=True, url='https://example.invalid/release')
+        self.assertNotIn('github.token', step_source(source, name))
+        self.assertEqual(step_environment(source, name, {
+            'secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN': 'fixture-token', 'inputs.tag': 'v2026.8.2',
+        }), {'GH_TOKEN': 'fixture-token', 'RELEASE_TAG': 'v2026.8.2'})
+        for changes, exit_code, token, accepted in [({}, '0', 'fixture-token', True),
+                ({'isDraft': False}, '0', 'fixture-token', True),
+                ({'tagName': 'v2026.8.1'}, '0', 'fixture-token', False),
+                ({}, '1', 'fixture-token', False), ({}, '0', '', False)]:
+            with self.subTest(changes=changes, exit_code=exit_code, token=token), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                gh = root / 'gh'
+                gh.write_text('#!/usr/bin/env python3\nimport os, sys, json\n'
+                              'open(os.environ["CALLS"], "w").write(json.dumps(sys.argv[1:]))\n'
+                              'print(os.environ["RELEASE_JSON"])\nsys.exit(int(os.environ["GH_EXIT"]))\n')
+                gh.chmod(0o755)
+                result = subprocess.run(['bash', '-c', step_script(source, name)], capture_output=True, text=True,
+                                        env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                                 CALLS=str(root / 'calls'), GH_TOKEN=token, GH_EXIT=exit_code,
+                                                 RELEASE_TAG=release['tagName'], OPENCLAW_REPOSITORY='openclaw/openclaw',
+                                                 RELEASE_JSON=json.dumps(release | changes)))
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                if token:
+                    self.assertEqual(json.loads((root / 'calls').read_text()), [
+                        'release', 'view', 'v2026.8.2', '--repo', 'openclaw/openclaw', '--json', 'tagName,isDraft,url'])
+                else:
+                    self.assertFalse((root / 'calls').exists())
+                    self.assertIn('Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret.', result.stderr)
+                if accepted:
+                    state = 'draft' if (release | changes)['isDraft'] else 'public'
+                    self.assertIn(f'Attaching to {state} release {release["url"]}; the npm publisher flips it public.',
+                                  result.stdout)
+
     def test_preparation_needs_tag_but_release_page_only_for_promotion(self):
         publish = workflow('openclaw-macos-publish.yml')
         validate = workflow('openclaw-macos-validate.yml')
@@ -582,6 +708,7 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
             clone = step_script(preparation, 'Clone selected public source')
             self.assertIn('git -C source rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}"', clone)
         self.assertIn('gh release view', promote)
+        self.assertIn('name: Ensure matching GitHub release exists (draft or public)', promote)
         self.assertIn("environment: ${{ !inputs.smoke_test_only && 'mac-release' || '' }}", build)
         self.assertIn('environment: mac-release', promote)
         self.assertIn('if: ${{ !inputs.preflight_only && !inputs.smoke_test_only }}', promote)
