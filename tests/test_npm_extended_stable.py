@@ -167,24 +167,14 @@ class ExtendedStablePromotionTests(unittest.TestCase):
 
 
 class RegularChannelAdmissionTests(unittest.TestCase):
-    def test_manual_stable_modes_enforce_patch_boundary(self):
+    def test_dist_tag_maintenance_cannot_promote_regular_stable(self):
+        # These public dispatch modes bypass the source repository's qualification gates.
         for mode in ('promote_beta_to_latest', 'sync_stable_dist_tags'):
-            job = WORKFLOW.split(f'\n  {mode}:\n', 1)[1].split('\n  sync_stable_dist_tags:', 1)[0]
-            for version, allowed in (('2026.9.1', True), ('2026.9.32', True),
-                                     ('2026.9.32-1', True), ('2026.9.33', False),
-                                     ('2026.9.34', False), ('2026.9.100', False),
-                                     ('2026.9.33-beta.1', False)):
-                with self.subTest(mode=mode, version=version), tempfile.TemporaryDirectory() as td:
-                    env_file = Path(td) / 'env'
-                    result = subprocess.run(['bash', '-c', script('Validate stable tag input format', job)],
-                                            env=dict(os.environ, RELEASE_TAG='v' + version,
-                                                     GITHUB_ENV=str(env_file)), capture_output=True, text=True)
-                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
-                    if not allowed:
-                        self.assertFalse(env_file.exists(), 'invalid target admitted to later steps')
+            self.assertNotIn(mode, WORKFLOW)
+        self.assertNotRegex(WORKFLOW, r'npm dist-tag add[^\n]+ latest(?:\s|$)')
 
     def test_scheduled_sync_rejects_extended_stable_latest_before_git_lookup(self):
-        job = WORKFLOW.split('\n  sync_beta_to_stable:\n', 1)[1].split('\n  promote_beta_to_latest:', 1)[0]
+        job = WORKFLOW.split('\n  sync_beta_to_stable:\n', 1)[1].split('\n  promote_extended_stable:', 1)[0]
         for version, allowed in (('2026.9.32', True), ('2026.9.32-1', True),
                                  ('2026.9.33', False), ('2026.9.34', False),
                                  ('2026.9.100', False), ('2026.9.33-beta.1', False)):

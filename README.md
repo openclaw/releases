@@ -26,12 +26,13 @@ maintenance, and durable release evidence separate from the product source repo.
   Swift test lane for an existing OpenClaw tag.
 - `.github/workflows/openclaw-macos-publish.yml` prepares and promotes signed
   macOS release artifacts for an existing OpenClaw tag.
-- `.github/workflows/openclaw-npm-dist-tags.yml` promotes or syncs npm `latest`
-  for OpenClaw and enforces the beta floor: after every successful `latest`
-  mutation, on manual `sync_beta_to_stable` dispatch, and daily as a backstop,
+- `.github/workflows/openclaw-npm-dist-tags.yml` enforces the beta floor:
+  on manual `sync_beta_to_stable` dispatch and daily as a backstop,
   `beta` for `openclaw` and every published official plugin is advanced to at
   least its own `latest`; an equal or newer `beta` is preserved. The plugin
   inventory is read as data from `openclaw/openclaw` `main` manifests.
+  It cannot change regular stable `latest`; use the qualified publication workflow
+  in `openclaw/openclaw` with stable/full validation, soak, and blocking performance.
   Its manual `promote_extended_stable` mode promotes an already-published core version
   to `extended-stable`, without changing other selectors.
 - `.github/workflows/openclaw-release-evidence.yml` records manually supplied
@@ -66,8 +67,7 @@ The action verifies that the Git tag exists in `openclaw/openclaw` and that the
 exact `openclaw` version is already published on the public npm registry. It
 supports both newer and older published extended-stable final versions with patch
 `33` or higher and no suffix. Extended-stable fixes increment the patch (`33`,
-`34`, `35`, and so on); they do not use correction suffixes. Regular stable/beta
-promotion and sync reject patch `33` or higher, including the scheduled beta floor.
+`34`, `35`, and so on); they do not use correction suffixes. The scheduled beta floor rejects patch `33` or higher.
 Choosing an older version performs a rollback through the same promotion action. Prereleases and floating selectors are rejected; new-publication
 eligibility rules do not apply to an already-published target; the channel/patch
 boundary still applies.
