@@ -54,14 +54,18 @@ jobs:
           sparse-checkout: scripts/release-npm-beta-floor.mjs
           sparse-checkout-cone-mode: false
 
-      - name: Read official plugin inventory
+      - name: Read official core and plugin package inventory
         uses: actions/checkout@v7
         with:
           repository: openclaw/openclaw
           ref: main
           path: source
           persist-credentials: false
-          sparse-checkout: /extensions/*/package.json
+          sparse-checkout: |
+            /package.json
+            /scripts/lib/npm-core-release-packages.json
+            /packages/*/package.json
+            /extensions/*/package.json
           sparse-checkout-cone-mode: false
 
       - name: Setup Node.js

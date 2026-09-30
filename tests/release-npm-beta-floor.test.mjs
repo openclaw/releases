@@ -102,6 +102,19 @@ const OFFICIAL_MANIFESTS = {
   "no-manifest": null,
 };
 
+// Core inventory fixture mirroring openclaw/openclaw's policy: a dependency-gated
+// package, a publishToNpm package, one not marked for npm, and one without a manifest.
+const CORE_POLICY = [
+  { path: "packages/ai", name: "@openclaw/ai", dependency: "@openclaw/ai" },
+  { path: "packages/gateway-protocol", name: "@openclaw/gateway-protocol" },
+  { path: "packages/sdk", name: "@openclaw/sdk" },
+  { path: "packages/removed", name: "@openclaw/removed" },
+];
+const CORE_MANIFESTS = {
+  "gateway-protocol": { openclaw: { release: { publishToNpm: true } } },
+  sdk: { private: true },
+};
+
 function runFloor({
   registry,
   shape = "object",
@@ -109,6 +122,8 @@ function runFloor({
   staleReadback,
   staleReads,
   manifests = OFFICIAL_MANIFESTS,
+  rootDependencies = { "@openclaw/ai": "workspace:*" },
+  corePolicy = CORE_POLICY,
 }) {
   const root = mkdtempSync(join(tmpdir(), "beta-floor-"));
   try {
@@ -117,6 +132,22 @@ function runFloor({
     writeFileSync(join(bin, "npm"), FAKE_NPM);
     chmodSync(join(bin, "npm"), 0o755);
     const source = join(root, "source");
+    mkdirSync(join(source, "scripts", "lib"), { recursive: true });
+    writeFileSync(
+      join(source, "package.json"),
+      JSON.stringify({ name: "openclaw", version: "2026.9.3", dependencies: rootDependencies }),
+    );
+    writeFileSync(
+      join(source, "scripts", "lib", "npm-core-release-packages.json"),
+      JSON.stringify(corePolicy),
+    );
+    for (const [name, manifest] of Object.entries(CORE_MANIFESTS)) {
+      mkdirSync(join(source, "packages", name), { recursive: true });
+      writeFileSync(
+        join(source, "packages", name, "package.json"),
+        JSON.stringify({ name: `@openclaw/${name}`, version: "2026.9.3", ...manifest }),
+      );
+    }
     for (const [name, extra] of Object.entries(manifests)) {
       const dir = join(source, "extensions", name);
       mkdirSync(dir, { recursive: true });
@@ -167,21 +198,32 @@ for (const shape of ["object", "array"]) {
       shape,
       registry: {
         openclaw: { latest: "2026.9.3", beta: "2026.9.1" },
+        "@openclaw/ai": { latest: "2026.9.3", beta: "2026.9.1" },
+        "@openclaw/gateway-protocol": { latest: "2026.9.3" },
+        "@openclaw/sdk": { latest: "2026.9.3", beta: "2026.9.1" },
         "@openclaw/alpha": { latest: "2026.9.3", beta: "2026.9.4-beta.1" },
       },
     });
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.registry.openclaw.beta, "2026.9.3");
+    assert.equal(result.registry["@openclaw/ai"].beta, "2026.9.3");
+    assert.equal(result.registry["@openclaw/gateway-protocol"].beta, "2026.9.3");
     assert.equal(result.registry["@openclaw/alpha"].beta, "2026.9.4-beta.1");
     assert.deepEqual(
       result.calls.filter((call) => call.startsWith("dist-tag ")),
-      ["dist-tag add openclaw@2026.9.3 beta"],
+      [
+        "dist-tag add @openclaw/ai@2026.9.3 beta",
+        "dist-tag add @openclaw/gateway-protocol@2026.9.3 beta",
+        "dist-tag add openclaw@2026.9.3 beta",
+      ],
     );
     assert.deepEqual(
-      result.calls.filter((call) => /deferred|internal|no-manifest/.test(call)),
+      result.calls.filter((call) => /deferred|internal|no-manifest|sdk|removed/.test(call)),
       [],
     );
     for (const line of [
+      "@openclaw/ai: beta 2026.9.1 -> 2026.9.3",
+      "@openclaw/gateway-protocol: beta <missing> -> 2026.9.3",
       "@openclaw/alpha: beta=2026.9.4-beta.1 >= latest=2026.9.3; unchanged",
       "@openclaw/bravo: no published latest; skipped",
       "openclaw: beta 2026.9.1 -> 2026.9.3",
@@ -193,6 +235,34 @@ for (const shape of ["object", "array"]) {
     }
   });
 }
+
+test("skips a dependency-gated core package the root no longer depends on", () => {
+  const result = runFloor({
+    rootDependencies: {},
+    registry: {
+      openclaw: { latest: "2026.9.3", beta: "2026.9.3" },
+      "@openclaw/ai": { latest: "2026.9.3", beta: "2026.9.1" },
+    },
+  });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.registry["@openclaw/ai"].beta, "2026.9.1");
+  assert.deepEqual(
+    result.calls.filter((call) => call.includes("@openclaw/ai")),
+    [],
+  );
+});
+
+test("rejects an invalid core package policy before touching the registry", () => {
+  for (const corePolicy of [[], [{ path: "../escape", name: "@openclaw/ai" }]]) {
+    const result = runFloor({
+      corePolicy,
+      registry: { openclaw: { latest: "2026.9.3", beta: "2026.9.3" } },
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /^Invalid core npm package policy\.$/m);
+    assert.deepEqual(result.calls, []);
+  }
+});
 
 test("keeps checking every package and reports all failures together", () => {
   const result = runFloor({

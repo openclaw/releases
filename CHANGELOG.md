@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Include the published core npm packages (`@openclaw/ai`, `@openclaw/gateway-client`, `@openclaw/gateway-protocol`) in the beta floor, derived from the `openclaw/openclaw` core package policy, so their `beta` no longer lags `latest`.
+
 - Attach promoted macOS assets to draft or public GitHub releases using the release token; the core npm publisher makes the release public.
 
 - Automatically resume signed macOS preflights from matching per-variant checkpoints, with exact source indexes, explicit run/attempt overrides, and a fresh-build option.
