@@ -101,20 +101,50 @@ async function readConvergedTags(packageName) {
   }
 }
 
+function readJson(path, { optional = false } = {}) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    if (optional && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+// openclaw/openclaw owns its core npm package inventory; apply the same inclusion
+// rule its release planner uses so every published core package is floored.
+function corePackageNames(sourceDir) {
+  const root = readJson(resolve(sourceDir, "package.json"));
+  const policy = readJson(resolve(sourceDir, "scripts/lib/npm-core-release-packages.json"));
+  if (!Array.isArray(policy) || policy.length === 0) {
+    throw new Error("Invalid core npm package policy.");
+  }
+  return policy.flatMap((entry) => {
+    if (
+      typeof entry?.path !== "string" ||
+      !/^packages\/[a-z0-9-]+$/.test(entry.path) ||
+      typeof entry.name !== "string" ||
+      !/^@openclaw\/[a-z0-9-]+$/.test(entry.name)
+    ) {
+      throw new Error("Invalid core npm package policy.");
+    }
+    if (entry.dependency !== undefined) {
+      if (typeof root.dependencies?.[entry.dependency] !== "string") return [];
+    } else {
+      const pkg = readJson(resolve(sourceDir, entry.path, "package.json"), { optional: true });
+      if (pkg?.openclaw?.release?.publishToNpm !== true) return [];
+    }
+    return [entry.name];
+  });
+}
+
 function packageNames(sourceDir) {
-  const packages = new Set(["openclaw"]);
+  const packages = new Set(["openclaw", ...corePackageNames(sourceDir)]);
   const extensions = resolve(sourceDir, "extensions");
   // Read source manifests as data; never execute source code with the npm token.
   for (const entry of readdirSync(extensions, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    let raw;
-    try {
-      raw = readFileSync(resolve(extensions, entry.name, "package.json"), "utf8");
-    } catch (error) {
-      if (error.code === "ENOENT") continue;
-      throw error;
-    }
-    const pkg = JSON.parse(raw);
+    const pkg = readJson(resolve(extensions, entry.name, "package.json"), { optional: true });
+    if (pkg === undefined) continue;
     if (pkg.openclaw?.release?.publishToNpm !== true || pkg.openclaw?.build?.bundledDist === true)
       continue;
     if (

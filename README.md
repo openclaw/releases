@@ -29,9 +29,12 @@ maintenance, and durable release evidence separate from the product source repo.
 - `.github/workflows/openclaw-npm-dist-tags.yml` promotes or syncs npm `latest`
   for OpenClaw and enforces the beta floor: after every successful `latest`
   mutation, on manual `sync_beta_to_stable` dispatch, and daily as a backstop,
-  `beta` for `openclaw` and every published official plugin is advanced to at
-  least its own `latest`; an equal or newer `beta` is preserved. The plugin
-  inventory is read as data from `openclaw/openclaw` `main` manifests.
+  `beta` for `openclaw`, every published core package (such as `@openclaw/ai`,
+  `@openclaw/gateway-client`, and `@openclaw/gateway-protocol`), and every
+  published official plugin is advanced to at least its own `latest`; an equal
+  or newer `beta` is preserved. The package inventory is read as data from
+  `openclaw/openclaw` `main`: its core npm package policy
+  (`scripts/lib/npm-core-release-packages.json`) and package manifests.
   Its manual `promote_extended_stable` mode promotes an already-published core version
   to `extended-stable`, without changing other selectors.
 - `.github/workflows/openclaw-release-evidence.yml` records manually supplied
@@ -73,7 +76,7 @@ The target must be a final regular version with patch below `33`, optionally
 with a correction suffix. A `-beta.N` version cannot be promoted with this
 action; prepare and qualify its final release version first. Promotion reuses
 the published package without rebuilding or republishing it. After `latest`
-changes, the beta-floor job runs for core and official plugins, preserving any
+changes, the beta-floor job runs for core packages and official plugins, preserving any
 newer beta.
 
 For selector recovery after qualification, `mode=sync_stable_dist_tags` accepts
