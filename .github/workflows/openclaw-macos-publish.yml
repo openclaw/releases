@@ -15,6 +15,10 @@ on:
         description: Optional public openclaw/openclaw source ref to build instead of the tag, for release-branch-only packaging fixes after npm/tag publication
         required: false
         type: string
+      prepared_package_run_id:
+        description: Successful public FRV npm artifact run for this exact tag and source; validate sealed package bytes instead of repacking against moving registry tags
+        required: false
+        type: string
       preflight_only:
         description: Build, sign, notarize, and package only; skip uploading assets to the public GitHub release
         required: true
@@ -393,6 +397,17 @@ jobs:
             echo "is_beta=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Download verified prepared package
+        if: ${{ inputs.prepared_package_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
+          PREPARED_PACKAGE_RUN_ID: ${{ inputs.prepared_package_run_id }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 release-tools/scripts/prepare-macos-package.py "$RUNNER_TEMP/prepared-release-package"
+
       - name: Release packaging guards
         working-directory: source
         env:
@@ -407,8 +422,19 @@ jobs:
         working-directory: source
         env:
           NODE_OPTIONS: --max-old-space-size=8192
+          PREPARED_PACKAGE_RUN_ID: ${{ inputs.prepared_package_run_id }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
         # release:check owns the package build, including Control UI assets.
-        run: pnpm release:check
+        run: |
+          set -euo pipefail
+          if [[ -z "$PREPARED_PACKAGE_RUN_ID" ]]; then
+            pnpm release:check
+            exit 0
+          fi
+          bundle="$RUNNER_TEMP/prepared-release-package"
+          export OPENCLAW_RELEASE_CHECK_LOCAL_PACKAGE_TARBALL_DIR="$bundle/dependencies"
+          pnpm release:check --tarball "$bundle/openclaw.tgz"
 
       - name: Validate release tag and package metadata
         working-directory: source

@@ -158,8 +158,11 @@ class MacOSWorkflowTests(unittest.TestCase):
             self.assertIn("steps.packaging.outputs.needs_signing == 'true'", step_source(source, name))
         self.assertIn("steps.packaging.outputs.complete == 'true' && !inputs.smoke_test_only",
                       step_source(source, 'Write notary and Sparkle key files'))
-        before_promote = source.split('  promote_release_artifacts:', 1)[0]
-        self.assertNotIn('secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN', before_promote)
+        # Artifact admission executes only trusted release-ops tooling; candidate
+        # build and packaging processes never receive the public write credential.
+        for name in ['Build and verify release contents',
+                     'Build, sign, notarize, and package macOS release']:
+            self.assertNotIn('OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN', step_source(source, name))
         self.assertIn("needs.prepare.outputs.build_needed == 'true'", source.split('  build_and_sign:', 1)[1])
 
     def test_resume_plan_selects_only_its_variant_and_validates_prefix(self):
@@ -389,6 +392,7 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                                                      NODE_OPTIONS=heap.group(1) if heap else '',
                                                      FAIL_BUILD='1' if fail else '0', RELEASE_TAG='v2026.8.2',
                                                      PUBLIC_RELEASE_BRANCH='release/2026.8.2', RUNNER_TEMP=td,
+                                                     PREPARED_PACKAGE_RUN_ID='',
                                                      ALLOW_LATE_CALVER_RECOVERY='false'))
                     result_code = result.returncode
                     if result_code:
