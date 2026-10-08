@@ -352,3 +352,12 @@ Do not commit:
 
 Raw logs and bulky proof artifacts belong in GitHub Actions retention, external
 artifact storage, or the public GitHub release when they are intended for users.
+
+For a frozen source that has already been published while macOS signing is still
+running, preflight accepts `prepared_package_run_id` from the successful public
+FRV npm artifact producer. It verifies the run, exact source/tag/version, bundle
+provenance, and SHA-256 of every package before invoking the native
+`release:check --tarball` path. The source build and generated checks remain in
+place; validation uses the sealed package instead of repacking against moving
+npm dist-tags. Pass the same successful preflight and Swift validation runs to
+promotion as usual.
