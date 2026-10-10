@@ -1,4 +1,5 @@
 """Exercise macOS release workflow failure propagation without Apple services."""
+import hashlib
 import json
 import os
 import plistlib
@@ -402,6 +403,68 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                 self.assertEqual(result_code, 23 if fail else 0)
                 if calls:
                     self.assertEqual(calls[0]['heap'], '--max-old-space-size=8192')
+
+    def test_appcast_pr_creation_and_refresh_include_original_promotion_evidence(self):
+        script = step_script(workflow('openclaw-macos-publish.yml'),
+                             'Publish stable appcast to public main')
+        for existing in [False, True]:
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                (root / 'promoted-artifacts').mkdir()
+                (root / 'promoted-artifacts/release-sha.txt').write_text('a' * 40 + '\n')
+                files = {}
+                for variant in ['universal', 'arm64', 'x86_64']:
+                    for kind in ['appcast', 'zip']:
+                        target = root / f'{variant}.{kind}'
+                        target.write_text(f'prepared {variant} {kind} bytes\n')
+                        files[f'{variant.upper()}_{kind.upper()}'] = str(target)
+                git = root / 'git'
+                git.write_text('''#!/usr/bin/env python3
+import os, pathlib, sys
+args = sys.argv[1:]
+if args[0] == 'clone':
+    pathlib.Path(args[-1]).mkdir()
+if args[0] == 'diff' or args[:4] == ['push', 'origin', 'HEAD:main']:
+    sys.exit(1)
+''')
+                git.chmod(0o755)
+                gh = root / 'gh'
+                gh.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+if args[:2] == ['pr', 'list']:
+    print('https://github.com/openclaw/openclaw/pull/123' if os.environ['EXISTING'] == '1' else '')
+else:
+    body = (pathlib.Path(args[args.index('--body-file') + 1]).read_text()
+            if '--body-file' in args else args[args.index('--body') + 1])
+    pathlib.Path(os.environ['CAPTURE']).write_text(json.dumps({'args': args, 'body': body}))
+    print('https://github.com/openclaw/openclaw/pull/123')
+''')
+                gh.chmod(0o755)
+                capture = root / 'capture.json'
+                result = subprocess.run(['bash', '-c', script], cwd=root,
+                    env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                             GH_TOKEN='fixture-token', RELEASE_TAG='v2026.8.2', VERSION='2026.8.2',
+                             OPENCLAW_REPOSITORY='openclaw/openclaw', GITHUB_REPOSITORY='openclaw/releases',
+                             GITHUB_RUN_ID='300', GITHUB_RUN_ATTEMPT='2',
+                             PREFLIGHT_RUN_ID='100', VALIDATE_RUN_ID='200',
+                             EXISTING='1' if existing else '0', CAPTURE=str(capture), **files),
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                captured = json.loads(capture.read_text())
+                self.assertEqual(captured['args'][:2], ['pr', 'edit' if existing else 'create'])
+                body = captured['body']
+                for heading in ['What Problem This Solves', 'Why This Change Was Made',
+                                'User Impact', 'Evidence']:
+                    self.assertIn(f'## {heading}\n', body)
+                for reference in ['actions/runs/100', 'actions/runs/200',
+                                  'actions/runs/300/attempts/2', 'a' * 40]:
+                    self.assertIn(reference, body)
+                for target in files.values():
+                    digest = hashlib.sha256(Path(target).read_bytes()).hexdigest()
+                    self.assertIn(f'{digest}  {target}', body)
+                self.assertIn('Public main feed readback remains pending', body)
+                self.assertIn('not independent cryptographic verification', body)
 
     def test_appcast_retention_and_promotion_reject_stale_or_mismatched_artifacts(self):
         build, promote = workflow('openclaw-macos-publish.yml').split('  promote_release_artifacts:', 1)
