@@ -12,6 +12,7 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_RELEASE_NAME = "${{ steps.packaging.outputs.checkpoint_only == 'true' && 'Build and sign macOS checkpoint (no Apple submission)' || 'Build, sign, notarize, and package macOS release (legacy source)' }}"
 
 
 def workflow(name):
@@ -98,19 +99,34 @@ class MacOSWorkflowTests(unittest.TestCase):
 
     def test_build_packager_stops_at_checkpoint_only_when_supported(self):
         source = workflow('openclaw-macos-publish.yml')
-        for step in ['Package macOS smoke-test artifacts', 'Build, sign, notarize, and package macOS release']:
+        for step in ['Package macOS smoke-test artifacts', PACKAGE_RELEASE_NAME]:
             for supported, exit_code in product(['true', 'false'], [0, 17]):
                 with self.subTest(step=step, supported=supported, exit_code=exit_code), tempfile.TemporaryDirectory() as td:
-                    root = Path(td)
+                    root = Path(td) / 'source'
+                    root.mkdir()
+                    (Path(td) / 'release-tools').symlink_to(ROOT, target_is_directory=True)
+                    summary = Path(td) / 'summary'
                     (root / 'scripts').mkdir()
                     package = root / 'scripts/package-mac-dist.sh'
                     package.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > calls\nexit "$PACKAGE_EXIT"\n')
                     package.chmod(0o755)
                     result = subprocess.run(['bash', '-c', step_script(source, step)], cwd=root,
-                                            env=dict(os.environ, CHECKPOINT_ONLY=supported, PACKAGE_EXIT=str(exit_code)),
+                                            env=dict(os.environ, CHECKPOINT_ONLY=supported, PACKAGE_EXIT=str(exit_code),
+                                                     BUILD_ARCHS='arm64', GITHUB_STEP_SUMMARY=str(summary),
+                                                     SKIP_NOTARIZE='1' if step == 'Package macOS smoke-test artifacts' else '0'),
                                             capture_output=True, text=True)
                     self.assertEqual(result.returncode, exit_code, result.stderr)
                     self.assertEqual((root / 'calls').read_text().strip(), '--checkpoint-only' if supported == 'true' else '')
+
+                    phase = ('build and sign checkpoint; no Apple submission' if supported == 'true'
+                             else ('legacy build, ad-hoc sign and package; no Apple submission'
+                                   if step == 'Package macOS smoke-test artifacts'
+                                   else 'legacy build, sign, notarize and package'))
+                    status = 'completed' if exit_code == 0 else 'failed (exit 17)'
+                    self.assertIn(f'macOS arm64: {phase}: started', result.stdout)
+                    self.assertIn(f'macOS arm64: {phase}: {status}', result.stdout)
+                    self.assertEqual(summary.read_text().count('\n'), 2)
+                    self.assertIn(f'{phase}: {status}', summary.read_text())
 
     def test_retry_consumes_original_build_attempt_and_rejects_foreign_handoff(self):
         source = workflow('openclaw-macos-publish.yml')
@@ -162,7 +178,7 @@ class MacOSWorkflowTests(unittest.TestCase):
         # Artifact admission executes only trusted release-ops tooling; candidate
         # build and packaging processes never receive the public write credential.
         for name in ['Build and verify release contents',
-                     'Build, sign, notarize, and package macOS release']:
+                     PACKAGE_RELEASE_NAME]:
             self.assertNotIn('OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN', step_source(source, name))
         self.assertIn("needs.prepare.outputs.build_needed == 'true'", source.split('  build_and_sign:', 1)[1])
 
@@ -272,7 +288,7 @@ class MacOSWorkflowTests(unittest.TestCase):
                 # after every packaging step and before the artifact upload (run 35969970230).
                 for job, packagers in [
                     ('build_and_sign', ['Package macOS smoke-test artifacts',
-                                        'Build, sign, notarize, and package macOS release']),
+                                        PACKAGE_RELEASE_NAME]),
                     ('notarize_and_package', ['Resume notarization and package macOS artifacts']),
                 ]:
                     body = source.split(f'  {job}:\n', 1)[1].split('\n  collect_preflight_artifacts:', 1)[0]
@@ -564,16 +580,22 @@ else:
         publish = workflow('openclaw-macos-publish.yml')
         packaging = 'Resume notarization and package macOS artifacts'
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td) / 'source'
+            root.mkdir()
+            (Path(td) / 'release-tools').symlink_to(ROOT, target_is_directory=True)
             (root / 'scripts').mkdir()
             package = root / 'scripts/package-mac-dist.sh'
             package.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > calls\nexit "$PACKAGE_EXIT"\n')
             package.chmod(0o755)
-            for exit_code in ['0', '17']:
+            for exit_code, smoke in product(['0', '17'], ['0', '1']):
                 result = subprocess.run(['bash', '-c', step_script(publish, packaging)], cwd=root,
-                                        env=dict(os.environ, PACKAGE_EXIT=exit_code), capture_output=True, text=True)
+                                        env=dict(os.environ, PACKAGE_EXIT=exit_code, BUILD_ARCHS='x86_64', SKIP_NOTARIZE=smoke), capture_output=True, text=True)
                 self.assertEqual(result.returncode, int(exit_code), result.stderr)
                 self.assertEqual((root / 'calls').read_text(), '--resume-notarization\n')
+                status = 'completed' if exit_code == '0' else 'failed (exit 17)'
+                phase = ('resume notarization and package; no compilation' if smoke == '0'
+                         else 'package smoke checkpoint; no Apple submission or compilation')
+                self.assertIn(f'macOS x86_64: {phase}: {status}', result.stdout)
         consumer = publish.split('  notarize_and_package:\n', 1)[1].split('  collect_preflight_artifacts:', 1)[0]
         self.assertEqual(step_script(consumer, 'Select release toolchain'),
                          step_script(publish, 'Select release toolchain'))
