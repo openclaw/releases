@@ -492,9 +492,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$CHECKPOINT_ONLY" == true ]]; then
-            scripts/package-mac-dist.sh --checkpoint-only
+            python3 ../release-tools/scripts/run-macos-package.py checkpoint
           else
-            scripts/package-mac-dist.sh
+            python3 ../release-tools/scripts/run-macos-package.py package
           fi
 
       - &import_signing
@@ -576,7 +576,7 @@ jobs:
           echo "NOTARYTOOL_ISSUER=$APP_STORE_CONNECT_ISSUER_ID" >> "$GITHUB_ENV"
           echo "SPARKLE_PRIVATE_KEY_FILE=$SPARKLE_PRIVATE_KEY_PATH" >> "$GITHUB_ENV"
 
-      - name: Build, sign, notarize, and package macOS release
+      - name: ${{ steps.packaging.outputs.checkpoint_only == 'true' && 'Build and sign macOS checkpoint (no Apple submission)' || 'Build, sign, notarize, and package macOS release (legacy source)' }}
         id: package_release
         if: ${{ !inputs.smoke_test_only }}
         working-directory: source
@@ -594,9 +594,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$CHECKPOINT_ONLY" == true ]]; then
-            scripts/package-mac-dist.sh --checkpoint-only
+            python3 ../release-tools/scripts/run-macos-package.py checkpoint
           else
-            scripts/package-mac-dist.sh
+            python3 ../release-tools/scripts/run-macos-package.py package
           fi
 
       - name: Preserve notarization recovery checkpoint
@@ -1201,7 +1201,7 @@ jobs:
           SKIP_NOTARIZE: ${{ inputs.smoke_test_only && '1' || '0' }}
         run: |
           set -euo pipefail
-          scripts/package-mac-dist.sh --resume-notarization
+          python3 ../release-tools/scripts/run-macos-package.py resume
 
       - name: Preserve notarization recovery checkpoint
         id: recovery_checkpoint
