@@ -159,11 +159,14 @@ checkpoints. Smoke, pretag, non-main, and promotion runs skip discovery.
 
 For sources supporting `package-mac-dist.sh --checkpoint-only`, **Re-run
 failed jobs** also works (`gh run rerun <run-id> --failed --repo openclaw/releases`).
-The `build_and_sign` matrix builds, signs, audits, and retains the app, symbols,
-and signed DMG before contacting Apple. The separate `notarize_and_package`
-matrix verifies that checkpoint, notarizes and staples the retained bytes, and
-produces the preflight artifacts and appcast. A failed notarization job can be
-rerun without compiling or importing the Developer ID key again.
+The `prepare_variants` matrix calls one reusable workflow per architecture.
+Each invocation builds, signs, audits, and retains its app, symbols, and signed
+DMG in `build_and_sign`, then advances immediately to its own separate
+`notarize_and_package` runner. Notarization verifies that checkpoint, notarizes
+and staples the retained bytes, and produces the preflight artifacts and
+appcast; it does not wait for sibling builds. Final collection still waits for
+every architecture and rejects incomplete or mismatched variant artifacts. A
+failed notarization job can be rerun without compiling or importing the Developer ID key again.
 
 Rerunning one consumer also reruns the collector. Final aggregate artifacts are
 replaced after their completeness and provenance checks; build checkpoints remain

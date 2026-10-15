@@ -17,6 +17,10 @@ PACKAGE_RELEASE_NAME = "${{ steps.packaging.outputs.checkpoint_only == 'true' &&
 
 def workflow(name):
     source = (ROOT / '.github/workflows' / name).read_text()
+    if name == 'openclaw-macos-publish.yml':
+        # Existing boundary tests exercise scripts at their new reusable owner.
+        child = (ROOT / '.github/workflows/openclaw-macos-variant.yml').read_text().split('jobs:\n', 1)[1]
+        source = source.replace('  collect_preflight_artifacts:\n', child + '  collect_preflight_artifacts:\n')
     # Shared YAML step anchors keep the legacy and split output guards identical.
     anchors = {}
     pattern = r'^      - &(\w+)\n        name: ([^\n]+)\n(.*?)(?=^      - |^  \w|\Z)'
@@ -50,6 +54,29 @@ def step_environment(source, name, context):
 
 
 class MacOSWorkflowTests(unittest.TestCase):
+    def test_variant_chain_has_no_sibling_build_barrier_and_collection_requires_success(self):
+        # Inspect the delivered DAG, not the flattened script fixture below.
+        publish = (ROOT / '.github/workflows/openclaw-macos-publish.yml').read_text()
+        variant = (ROOT / '.github/workflows/openclaw-macos-variant.yml').read_text()
+        caller = publish.split('  prepare_variants:\n', 1)[1].split('  collect_preflight_artifacts:', 1)[0]
+        self.assertIn('uses: ./.github/workflows/openclaw-macos-variant.yml', caller)
+        self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.package_matrix) }}', caller)
+        self.assertIn('variant_json: ${{ toJSON(matrix) }}', caller)
+        self.assertIn('contains(fromJSON(needs.prepare.outputs.build_matrix).include.*.variant, matrix.variant)', caller)
+        self.assertIn('fail-fast: false', caller)
+        build, notarize = variant.split('  build_and_sign:\n', 1)[1].split('  notarize_and_package:\n', 1)
+        self.assertNotRegex(build, r'(?m)^    needs:')
+        self.assertIn('    needs: build_and_sign\n', notarize)
+        self.assertIn("needs.build_and_sign.result == 'success' || needs.build_and_sign.result == 'skipped'", notarize)
+        for job in [build, notarize]:
+            self.assertIn("include: ${{ fromJSON(format('[{0}]', inputs.variant_json)) }}", job)
+            self.assertIn('runs-on: macos-26', job)
+        collector = publish.split('  collect_preflight_artifacts:\n', 1)[1].split('  promote_release_artifacts:', 1)[0]
+        self.assertIn('needs: [prepare, prepare_variants]', collector)
+        self.assertIn("needs.prepare_variants.result == 'success'", collector)
+        self.assertNotIn('  build_and_sign:', publish)
+        self.assertNotIn('  notarize_and_package:', publish)
+
     def test_source_contract_selects_fresh_variants_and_legacy_fallback(self):
         source = workflow('openclaw-macos-publish.yml')
         script = step_script(source, 'Pin packaging source and variants')
@@ -180,12 +207,12 @@ class MacOSWorkflowTests(unittest.TestCase):
         for name in ['Build and verify release contents',
                      PACKAGE_RELEASE_NAME]:
             self.assertNotIn('OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN', step_source(source, name))
-        self.assertIn("needs.prepare.outputs.build_needed == 'true'", source.split('  build_and_sign:', 1)[1])
+        self.assertIn("inputs.build_needed", source.split('  build_and_sign:', 1)[1])
 
     def test_resume_plan_selects_only_its_variant_and_validates_prefix(self):
         source = workflow('openclaw-macos-publish.yml')
         name = 'Select immutable variant handoff'
-        self.assertIn('RESUME_PLAN: ${{ needs.prepare.outputs.resume_plan }}', step_source(source, name))
+        self.assertIn('RESUME_PLAN: ${{ inputs.resume_plan }}', step_source(source, name))
         handoff = dict(sourceSha='a' * 40, supported=True, mode='checkpoint', runId='123', attempt='1')
         cases = [('arm64', 'macos-signed', '999', True),
                  ('arm64', 'macos-notarization', '999', True), ('arm64', 'other', '123', False),
@@ -218,7 +245,7 @@ class MacOSWorkflowTests(unittest.TestCase):
         self.assertRegex(source, r'ignore_checkpoints:\n        description: [^\n]+\n'
                                 r'        required: true\n        default: false\n        type: boolean')
         build = source.split('  build_and_sign:', 1)[1].split('  notarize_and_package:', 1)[0]
-        self.assertIn("if: ${{ needs.prepare.outputs.reuse_preflight != 'true' && needs.prepare.outputs.build_needed == 'true' }}",
+        self.assertIn("if: ${{ inputs.build_needed }}",
                       build)
         for job, variant, prefix in product(['build_and_sign', 'notarize_and_package'],
                                             ['universal', 'arm64', 'x86_64'],
