@@ -247,6 +247,11 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 node --test 'tests/*.test.mjs'
 ```
 
+The native packager checks `xcrun metal --version` and installs the separate
+`MetalToolchain` component when the selected Xcode does not have it. This is
+required for the bundled MLX voice helper even on VMs without a usable GPU;
+compilation remains mandatory and installation failures stop packaging.
+
 ## Release Approval
 
 An explicit request to release OpenClaw authorizes the macOS release through
