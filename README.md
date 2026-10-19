@@ -51,6 +51,11 @@ An existing seed feed alone is not valid release output. The preflight uses
 `pnpm release:check` to build and validate package contents once before metadata
 validation; native app packaging retains its own matching runtime build.
 
+macOS CI, Swift validation, and packaging use the Apple Silicon `xcode-27`
+runner and its default Xcode toolchain. Intel variants cross-compile and verify
+their runtimes under Rosetta. The deployment target stays at macOS 15.0, matching
+the public source package and app metadata.
+
 Promotion attaches assets to the matching GitHub release whether it is still a
 draft or already public. The core npm publisher flips it public.
 

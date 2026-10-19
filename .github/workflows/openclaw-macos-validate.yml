@@ -26,8 +26,10 @@ env:
 
 jobs:
   macos_validate:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 60
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
     permissions:
       contents: read
     steps:
@@ -100,10 +102,9 @@ jobs:
           done
           exit 1
 
-      - name: Select release toolchain
+      - name: Show image toolchain
         run: |
           set -euo pipefail
-          sudo xcode-select -s /Applications/Xcode_26.6.app
           xcodebuild -version
           swift --version
 

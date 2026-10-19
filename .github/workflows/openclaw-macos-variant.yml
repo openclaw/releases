@@ -40,6 +40,7 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   NODE_VERSION: "24.20.0"
+  MACOSX_DEPLOYMENT_TARGET: "15.0"
   OPENCLAW_REPOSITORY: openclaw/openclaw
   EXPECTED_DEVELOPER_IDENTITY: "Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)"
   EXPECTED_DEVELOPER_TEAM_ID: FWJYW4S8P8
@@ -47,7 +48,7 @@ env:
 jobs:
   build_and_sign:
     if: ${{ inputs.build_needed }}
-    runs-on: macos-26
+    runs-on: xcode-27
     strategy:
       fail-fast: false
       matrix:
@@ -143,9 +144,16 @@ jobs:
             echo "Source predates bundled Mermaid assets; nothing to prepare."
           fi
 
-      - name: Select release toolchain
+      - name: Ensure Rosetta for Intel runtime verification
+        if: ${{ matrix.variant != 'arm64' }}
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.6.app
+          if ! arch -x86_64 /usr/bin/true; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          arch -x86_64 /usr/bin/true
+
+      - name: Show image toolchain
+        run: |
           xcodebuild -version
           swift --version
 
@@ -751,7 +759,7 @@ jobs:
   notarize_and_package:
     needs: build_and_sign
     if: ${{ !cancelled() && (needs.build_and_sign.result == 'success' || needs.build_and_sign.result == 'skipped') }}
-    runs-on: macos-26
+    runs-on: xcode-27
     strategy:
       fail-fast: false
       matrix:
@@ -829,10 +837,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Select release toolchain
+      - name: Ensure Rosetta for Intel runtime verification
+        if: ${{ matrix.variant != 'arm64' }}
+        run: |
+          if ! arch -x86_64 /usr/bin/true; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          arch -x86_64 /usr/bin/true
+
+      - name: Show image toolchain
         if: ${{ steps.packaging.outputs.complete == 'true' }}
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.6.app
           xcodebuild -version
           swift --version
 
