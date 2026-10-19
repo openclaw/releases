@@ -56,6 +56,11 @@ runner and its default Xcode toolchain. Intel variants cross-compile and verify
 their runtimes under Rosetta. The deployment target stays at macOS 15.0, matching
 the public source package and app metadata.
 
+Tagged packagers keep their existing disk-image command interface. A scoped
+adapter uses native macOS 27 folder-image creation for read-only APFS source
+snapshots and writable staging images; other image operations stay with the
+system tool. Snapshot immutability and final compressed artifacts are preserved.
+
 Promotion attaches assets to the matching GitHub release whether it is still a
 draft or already public. The core npm publisher flips it public.
 

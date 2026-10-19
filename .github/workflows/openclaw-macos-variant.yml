@@ -81,6 +81,12 @@ jobs:
           git -C source checkout --detach "$SOURCE_SHA"
           [[ "$(git -C source rev-parse HEAD)" == "$SOURCE_SHA" ]]
 
+      - name: Use native macOS 27 folder-image creation
+        run: |
+          mkdir -p "$RUNNER_TEMP/macos27-tools"
+          ln -s "$GITHUB_WORKSPACE/release-tools/scripts/macos27-hdiutil.py" "$RUNNER_TEMP/macos27-tools/hdiutil"
+          echo "$RUNNER_TEMP/macos27-tools" >> "$GITHUB_PATH"
+
       - name: Select packaging contract
         id: packaging
         env:
@@ -830,6 +836,13 @@ jobs:
           git -C source fetch origin "$SOURCE_SHA"
           git -C source checkout --detach "$SOURCE_SHA"
           [[ "$(git -C source rev-parse HEAD)" == "$SOURCE_SHA" ]]
+
+      - name: Use native macOS 27 folder-image creation
+        if: ${{ steps.packaging.outputs.complete == 'true' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/macos27-tools"
+          ln -s "$GITHUB_WORKSPACE/release-tools/scripts/macos27-hdiutil.py" "$RUNNER_TEMP/macos27-tools/hdiutil"
+          echo "$RUNNER_TEMP/macos27-tools" >> "$GITHUB_PATH"
 
       - name: Setup Node.js
         if: ${{ steps.packaging.outputs.complete == 'true' }}
