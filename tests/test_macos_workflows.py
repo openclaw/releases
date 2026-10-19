@@ -70,7 +70,7 @@ class MacOSWorkflowTests(unittest.TestCase):
         self.assertIn("needs.build_and_sign.result == 'success' || needs.build_and_sign.result == 'skipped'", notarize)
         for job in [build, notarize]:
             self.assertIn("include: ${{ fromJSON(format('[{0}]', inputs.variant_json)) }}", job)
-            self.assertIn('runs-on: macos-26', job)
+            self.assertIn('runs-on: xcode-27', job)
         collector = publish.split('  collect_preflight_artifacts:\n', 1)[1].split('  promote_release_artifacts:', 1)[0]
         self.assertIn('needs: [prepare, prepare_variants]', collector)
         self.assertIn("needs.prepare_variants.result == 'success'", collector)
@@ -627,8 +627,8 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                          else 'package smoke checkpoint; no Apple submission or compilation')
                 self.assertIn(f'macOS x86_64: {phase}: {status}', result.stdout)
         consumer = publish.split('  notarize_and_package:\n', 1)[1].split('  collect_preflight_artifacts:', 1)[0]
-        self.assertEqual(step_script(consumer, 'Select release toolchain'),
-                         step_script(publish, 'Select release toolchain'))
+        self.assertEqual(step_script(consumer, 'Show image toolchain'),
+                         step_script(publish, 'Show image toolchain'))
         for name in ['Checkout submodules (retry)', 'Setup pnpm', 'Install dependencies',
                      'Prepare Apple Mermaid assets', 'Cache SwiftPM', 'Release packaging guards',
                      'Build and verify release contents', 'Validate release tag and package metadata']:

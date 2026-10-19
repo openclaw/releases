@@ -51,6 +51,16 @@ An existing seed feed alone is not valid release output. The preflight uses
 `pnpm release:check` to build and validate package contents once before metadata
 validation; native app packaging retains its own matching runtime build.
 
+macOS CI, Swift validation, and packaging use the Apple Silicon `xcode-27`
+runner and its default Xcode toolchain. Intel variants cross-compile and verify
+their runtimes under Rosetta. The deployment target stays at macOS 15.0, matching
+the public source package and app metadata.
+
+Tagged packagers keep their existing disk-image command interface. A scoped
+adapter uses native macOS 27 folder-image creation for read-only APFS source
+snapshots and writable staging images; other image operations stay with the
+system tool. Snapshot immutability and final compressed artifacts are preserved.
+
 Promotion attaches assets to the matching GitHub release whether it is still a
 draft or already public. The core npm publisher flips it public.
 
@@ -236,6 +246,11 @@ node --check scripts/release-npm-beta-floor.mjs
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 node --test 'tests/*.test.mjs'
 ```
+
+The native packager checks `xcrun metal --version` and installs the separate
+`MetalToolchain` component when the selected Xcode does not have it. This is
+required for the bundled MLX voice helper even on VMs without a usable GPU;
+compilation remains mandatory and installation failures stop packaging.
 
 ## Release Approval
 
