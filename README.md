@@ -257,6 +257,32 @@ policy intact. Do not approve a job on someone else's behalf or use an alternate
 signing path to bypass an enforced rule. Organization owners manage the
 environment policy; changes to that policy require explicit owner direction.
 
+### macOS publisher identity
+
+The private, organization-owned **OpenClaw macOS Publisher** GitHub App is
+installed only on `openclaw/openclaw`. Its repository permissions are Contents
+(write), Pull requests (write), Actions (read), and required Metadata (read).
+It has no organization permissions, workflow-write permission, or ruleset bypass.
+
+The `mac-release` environment in this repository holds
+`MACOS_PUBLISHER_CLIENT_ID` as a variable and
+`MACOS_PUBLISHER_APP_PRIVATE_KEY` as a secret. Prepared npm-package downloads
+mint an Actions-read token immediately before use. Final promotion mints a
+Contents-write/Pull-requests-write token after artifact transfers and provenance
+checks. Both tokens are limited to `openclaw/openclaw` and revoked at job end.
+Same-repository artifacts continue to use `GITHUB_TOKEN`.
+Smoke mode rejects `prepared_package_run_id` because it has no signing environment.
+
+Stable feed updates always open or update a PR from
+`automation/macos-appcast-<version>` to `main`. The workflow does not push to
+`main` or use the protected `release/*` namespace. Feeds become public only
+after that PR merges. An already-current main feed is reported explicitly.
+Reruns reuse only an open PR authored by this App, targeting main, with appcast-only
+branch history. Ordinary fast-forward pushes preserve concurrent work; collisions,
+unrelated history, and failed PR writes stop with a visible error.
+An orphan branch requires a maintainer to inspect its ownership and recover it
+explicitly before retrying; the workflow never force-pushes or takes it over.
+
 ## Release Evidence
 
 The evidence workflows write release summaries under `evidence/<release-id>/`.

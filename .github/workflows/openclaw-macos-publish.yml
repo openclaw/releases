@@ -94,6 +94,12 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Forbid prepared packages in smoke mode
+        if: ${{ inputs.smoke_test_only && inputs.prepared_package_run_id != '' }}
+        run: |
+          echo "prepared_package_run_id requires a signed preflight with mac-release credentials; smoke mode cannot use it." >&2
+          exit 1
+
       - name: Forbid pretag artifact promotion
         if: ${{ inputs.pretag_source_sha != '' && (!inputs.preflight_only || inputs.smoke_test_only || inputs.source_ref != '' || inputs.resume_notarization_run_id != '' || github.ref != 'refs/heads/main') }}
         run: |
@@ -403,19 +409,6 @@ jobs:
           path: release-tools
           persist-credentials: false
 
-      - name: Ensure matching GitHub release exists (draft or public)
-        env:
-          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret." >&2
-            exit 1
-          fi
-          RELEASE_JSON="$(gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" --json tagName,isDraft,url)"
-          printf '%s' "$RELEASE_JSON" | node -e 'const fs = require("node:fs"); const release = JSON.parse(fs.readFileSync(0, "utf8")); if (release.tagName !== process.env.RELEASE_TAG) throw new Error("GitHub release tag does not match requested tag"); console.log(`Attaching to ${release.isDraft ? "draft" : "public"} release ${release.url}; the npm publisher flips it public.`);'
-
       - name: Determine release channel
         id: release_channel
         env:
@@ -659,15 +652,41 @@ jobs:
             ${{ steps.packaged_files.outputs.x86_64_dsym }}
           if-no-files-found: error
 
+      # Mint after artifact transfers and provenance checks to preserve the
+      # installation token's one-hour lifetime for release publication.
+      - name: Mint macOS publication token
+        id: publisher_token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.MACOS_PUBLISHER_CLIENT_ID }}
+          private-key: ${{ secrets.MACOS_PUBLISHER_APP_PRIVATE_KEY }}
+          owner: openclaw
+          repositories: openclaw
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Ensure matching GitHub release exists (draft or public)
+        env:
+          GH_TOKEN: ${{ steps.publisher_token.outputs.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing macOS publisher installation token." >&2
+            exit 1
+          fi
+          RELEASE_JSON="$(gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" --json tagName,isDraft,url)"
+          printf '%s' "$RELEASE_JSON" | node -e 'const fs = require("node:fs"); const release = JSON.parse(fs.readFileSync(0, "utf8")); if (release.tagName !== process.env.RELEASE_TAG) throw new Error("GitHub release tag does not match requested tag"); console.log(`Attaching to ${release.isDraft ? "draft" : "public"} release ${release.url}; the npm publisher flips it public.`);'
+
       - name: Upload packaged macOS assets to public GitHub release
         env:
-          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.publisher_token.outputs.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.packaged_version.outputs.value }}
         run: |
           set -euo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret." >&2
+            echo "Missing macOS publisher installation token." >&2
             exit 1
           fi
           assets=()
@@ -680,7 +699,7 @@ jobs:
 
       - name: Verify public GitHub release assets
         env:
-          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.publisher_token.outputs.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.packaged_version.outputs.value }}
         run: |
@@ -696,10 +715,10 @@ jobs:
             done
           done
 
-      - name: Publish stable appcast to public main
+      - name: Open stable appcast pull request
         if: ${{ steps.release_channel.outputs.is_beta != 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.publisher_token.outputs.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.packaged_version.outputs.value }}
           UNIVERSAL_APPCAST: ${{ steps.appcast_path.outputs.universal }}
@@ -710,19 +729,16 @@ jobs:
           X86_64_ZIP: ${{ steps.packaged_files.outputs.x86_64_zip }}
           PREFLIGHT_RUN_ID: ${{ inputs.preflight_run_id }}
           VALIDATE_RUN_ID: ${{ inputs.validate_run_id }}
+          PUBLISHER_APP_SLUG: ${{ steps.publisher_token.outputs.app-slug }}
         run: |
           set -euo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret." >&2
+            echo "Missing macOS publisher installation token." >&2
             exit 1
           fi
           for path in "$UNIVERSAL_APPCAST" "$ARM64_APPCAST" "$X86_64_APPCAST"; do
             [[ -f "$path" ]] || { echo "Stable appcast path is missing: $path" >&2; exit 1; }
           done
-          universal_source="$(realpath "$UNIVERSAL_APPCAST")"
-          arm64_source="$(realpath "$ARM64_APPCAST")"
-          x86_64_source="$(realpath "$X86_64_APPCAST")"
-
           workdir="$(mktemp -d)"
           trap 'rm -rf "${workdir}"' EXIT
           source_sha="$(tr -d '\r\n' < promoted-artifacts/release-sha.txt)"
@@ -759,40 +775,7 @@ jobs:
               "$UNIVERSAL_ZIP" "$ARM64_ZIP" "$X86_64_ZIP"
             echo '~~~'
           } > "$body_file"
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/${OPENCLAW_REPOSITORY}.git" "${workdir}/openclaw"
-          cd "${workdir}/openclaw"
-          git config user.name "openclaw-release-bot"
-          git config user.email "release-bot@openclaw.ai"
-          cp "$universal_source" appcast.xml
-          cp "$arm64_source" appcast-arm64.xml
-          cp "$x86_64_source" appcast-x86_64.xml
-
-          if git diff --quiet -- appcast.xml appcast-arm64.xml appcast-x86_64.xml; then
-            echo "Public main already has every macOS appcast for ${RELEASE_TAG}."
-            exit 0
-          fi
-
-          git add appcast.xml appcast-arm64.xml appcast-x86_64.xml
-          git commit -m "chore(release): update appcast for ${VERSION}"
-          if git push origin HEAD:main; then
-            echo "Published appcast.xml directly to public main for ${RELEASE_TAG}."
-            exit 0
-          fi
-
-          branch="release/appcast-${RELEASE_TAG#v}"
-          git push --force-with-lease origin HEAD:"${branch}"
-          pr_url="$(gh pr list --repo "${OPENCLAW_REPOSITORY}" --head "${branch}" --state open --json url --jq '.[0].url // empty')"
-          if [[ -z "${pr_url}" ]]; then
-            pr_url="$(gh pr create \
-              --repo "${OPENCLAW_REPOSITORY}" \
-              --head "${branch}" \
-              --base main \
-              --title "chore(release): update appcast for ${VERSION}" \
-              --body-file "$body_file")"
-          else
-            gh pr edit "$pr_url" --repo "${OPENCLAW_REPOSITORY}" --body-file "$body_file"
-          fi
-          echo "Direct main push was blocked; opened appcast PR: ${pr_url}"
+          python3 release-tools/scripts/update-macos-appcast.py "$body_file"
 
       - name: Summarize follow-up
         env:
@@ -813,7 +796,7 @@ jobs:
             echo "Assets are attached to the GitHub release, which may still be a draft; the core npm publisher flips it public."
             echo
             if [[ "$IS_BETA" != "true" ]]; then
-              echo "Stable appcast publish runs automatically after public release assets are verified. If direct \`main\` push is blocked, the workflow opens or updates an appcast PR."
+              echo "Stable appcasts are proposed through an automation/macos-appcast-* PR after release assets are verified. Feed publication remains pending until the PR merges; an already-current main feed is reported explicitly."
             else
               echo "Beta release detected; no shared production \`appcast.xml\` artifact is generated."
             fi
