@@ -447,67 +447,70 @@ if command == 'release:openclaw:npm:check' and not pathlib.Path('dist/control-ui
                 if calls:
                     self.assertEqual(calls[0]['heap'], '--max-old-space-size=8192')
 
-    def test_appcast_pr_creation_and_refresh_include_original_promotion_evidence(self):
-        script = step_script(workflow('openclaw-macos-publish.yml'),
-                             'Publish stable appcast to public main')
-        for existing in [False, True]:
-            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                (root / 'promoted-artifacts').mkdir()
-                (root / 'promoted-artifacts/release-sha.txt').write_text('a' * 40 + '\n')
-                files = {}
-                for variant in ['universal', 'arm64', 'x86_64']:
-                    for kind in ['appcast', 'zip']:
-                        target = root / f'{variant}.{kind}'
-                        target.write_text(f'prepared {variant} {kind} bytes\n')
-                        files[f'{variant.upper()}_{kind.upper()}'] = str(target)
-                git = root / 'git'
-                git.write_text('''#!/usr/bin/env python3
-import os, pathlib, sys
-args = sys.argv[1:]
-if args[0] == 'clone':
-    pathlib.Path(args[-1]).mkdir()
-if args[0] == 'diff' or args[:4] == ['push', 'origin', 'HEAD:main']:
-    sys.exit(1)
-''')
-                git.chmod(0o755)
-                gh = root / 'gh'
-                gh.write_text('''#!/usr/bin/env python3
-import json, os, pathlib, sys
-args = sys.argv[1:]
-if args[:2] == ['pr', 'list']:
-    print('https://github.com/openclaw/openclaw/pull/123' if os.environ['EXISTING'] == '1' else '')
-else:
-    body = (pathlib.Path(args[args.index('--body-file') + 1]).read_text()
-            if '--body-file' in args else args[args.index('--body') + 1])
-    pathlib.Path(os.environ['CAPTURE']).write_text(json.dumps({'args': args, 'body': body}))
-    print('https://github.com/openclaw/openclaw/pull/123')
-''')
-                gh.chmod(0o755)
-                capture = root / 'capture.json'
-                result = subprocess.run(['bash', '-c', script], cwd=root,
-                    env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
-                             GH_TOKEN='fixture-token', RELEASE_TAG='v2026.8.2', VERSION='2026.8.2',
-                             OPENCLAW_REPOSITORY='openclaw/openclaw', GITHUB_REPOSITORY='openclaw/releases',
-                             GITHUB_RUN_ID='300', GITHUB_RUN_ATTEMPT='2',
-                             PREFLIGHT_RUN_ID='100', VALIDATE_RUN_ID='200',
-                             EXISTING='1' if existing else '0', CAPTURE=str(capture), **files),
-                    capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                captured = json.loads(capture.read_text())
-                self.assertEqual(captured['args'][:2], ['pr', 'edit' if existing else 'create'])
-                body = captured['body']
-                for heading in ['What Problem This Solves', 'Why This Change Was Made',
-                                'User Impact', 'Evidence']:
-                    self.assertIn(f'## {heading}\n', body)
-                for reference in ['actions/runs/100', 'actions/runs/200',
-                                  'actions/runs/300/attempts/2', 'a' * 40]:
-                    self.assertIn(reference, body)
-                for target in files.values():
-                    digest = hashlib.sha256(Path(target).read_bytes()).hexdigest()
-                    self.assertIn(f'{digest}  {target}', body)
-                self.assertIn('Public main feed readback remains pending', body)
-                self.assertIn('not independent cryptographic verification', body)
+    def test_appcast_pr_includes_original_promotion_evidence(self):
+        script = step_script(workflow('openclaw-macos-publish.yml'), 'Open stable appcast pull request')
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / 'promoted-artifacts').mkdir()
+            (root / 'promoted-artifacts/release-sha.txt').write_text('a' * 40 + '\n')
+            files = {}
+            for variant in ['universal', 'arm64', 'x86_64']:
+                for kind in ['appcast', 'zip']:
+                    target = root / f'{variant}.{kind}'
+                    target.write_text(f'prepared {variant} {kind} bytes\n')
+                    files[f'{variant.upper()}_{kind.upper()}'] = str(target)
+            scripts = root / 'release-tools/scripts'
+            scripts.mkdir(parents=True)
+            (scripts / 'update-macos-appcast.py').write_text(
+                'import os, pathlib, sys\n'
+                'pathlib.Path(os.environ["CAPTURE"]).write_text(pathlib.Path(sys.argv[1]).read_text())\n')
+            capture = root / 'body.md'
+            result = subprocess.run(['/bin/bash', '-c', script], cwd=root,
+                env=dict(os.environ, GH_TOKEN='fixture-token', RELEASE_TAG='v2026.8.2', VERSION='2026.8.2',
+                         OPENCLAW_REPOSITORY='openclaw/openclaw', GITHUB_REPOSITORY='openclaw/releases',
+                         GITHUB_RUN_ID='300', GITHUB_RUN_ATTEMPT='2',
+                         PREFLIGHT_RUN_ID='100', VALIDATE_RUN_ID='200', CAPTURE=str(capture), **files),
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            body = capture.read_text()
+            for heading in ['What Problem This Solves', 'Why This Change Was Made', 'User Impact', 'Evidence']:
+                self.assertIn(f'## {heading}\n', body)
+            for reference in ['actions/runs/100', 'actions/runs/200', 'actions/runs/300/attempts/2', 'a' * 40]:
+                self.assertIn(reference, body)
+            for target in files.values():
+                digest = hashlib.sha256(Path(target).read_bytes()).hexdigest()
+                self.assertIn(f'{digest}  {target}', body)
+            self.assertIn('Public main feed readback remains pending', body)
+            self.assertIn('not independent cryptographic verification', body)
+
+    def test_app_tokens_are_scoped_per_job_and_minted_after_expensive_work(self):
+        source = workflow('openclaw-macos-publish.yml')
+        read = step_source(source, 'Mint prepared package read token')
+        write = step_source(source, 'Mint macOS publication token')
+        for token in [read, write]:
+            self.assertIn('actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510', token)
+            self.assertIn('owner: openclaw', token)
+            self.assertIn('repositories: openclaw', token)
+            self.assertNotIn('skip-token-revoke', token)
+        self.assertIn('permission-actions: read', read)
+        self.assertNotIn('permission-contents:', read)
+        self.assertNotIn('permission-pull-requests:', read)
+        self.assertIn('permission-contents: write', write)
+        self.assertIn('permission-pull-requests: write', write)
+        self.assertNotIn('permission-actions:', write)
+        self.assertLess(source.index('name: Install dependencies'), source.index('name: Mint prepared package read token'))
+        self.assertLess(source.index('name: Mint prepared package read token'), source.index('name: Download verified prepared package'))
+        self.assertLess(source.index('name: Upload packaged macOS artifacts'), source.index('name: Mint macOS publication token'))
+        self.assertLess(source.index('name: Mint macOS publication token'), source.index('name: Ensure matching GitHub release exists'))
+        self.assertNotIn('secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN', source)
+        for name in ['Verify preflight run metadata', 'Verify validate run metadata']:
+            self.assertIn('GH_TOKEN: ${{ github.token }}', step_source(source, name))
+        rejection = step_source(source, 'Forbid prepared packages in smoke mode')
+        self.assertIn("inputs.smoke_test_only && inputs.prepared_package_run_id != ''", rejection)
+        result = subprocess.run(['/bin/bash', '-c', step_script(source, 'Forbid prepared packages in smoke mode')],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('requires a signed preflight', result.stderr)
 
     def test_appcast_retention_and_promotion_reject_stale_or_mismatched_artifacts(self):
         build, promote = workflow('openclaw-macos-publish.yml').split('  promote_release_artifacts:', 1)
@@ -785,7 +788,7 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
         release = dict(tagName='v2026.8.2', isDraft=True, url='https://example.invalid/release')
         self.assertNotIn('github.token', step_source(source, name))
         self.assertEqual(step_environment(source, name, {
-            'secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN': 'fixture-token', 'inputs.tag': 'v2026.8.2',
+            'steps.publisher_token.outputs.token': 'fixture-token', 'inputs.tag': 'v2026.8.2',
         }), {'GH_TOKEN': 'fixture-token', 'RELEASE_TAG': 'v2026.8.2'})
         for changes, exit_code, token, accepted in [({}, '0', 'fixture-token', True),
                 ({'isDraft': False}, '0', 'fixture-token', True),
@@ -809,7 +812,7 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                         'release', 'view', 'v2026.8.2', '--repo', 'openclaw/openclaw', '--json', 'tagName,isDraft,url'])
                 else:
                     self.assertFalse((root / 'calls').exists())
-                    self.assertIn('Missing OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN secret.', result.stderr)
+                    self.assertIn('Missing macOS publisher installation token.', result.stderr)
                 if accepted:
                     state = 'draft' if (release | changes)['isDraft'] else 'public'
                     self.assertIn(f'Attaching to {state} release {release["url"]}; the npm publisher flips it public.',

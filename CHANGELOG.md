@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use the organization-owned macOS Publisher App with short-lived repository-scoped tokens, and propose stable feeds through owned appcast PRs without direct main or force pushes.
+
 - Include the published core npm packages (`@openclaw/ai`, `@openclaw/gateway-client`, `@openclaw/gateway-protocol`) in the beta floor, derived from the `openclaw/openclaw` core package policy, so their `beta` no longer lags `latest`.
 
 - Attach promoted macOS assets to draft or public GitHub releases using the release token; the core npm publisher makes the release public.

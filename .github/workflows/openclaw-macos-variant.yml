@@ -177,10 +177,21 @@ jobs:
             echo "is_beta=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Mint prepared package read token
+        id: prepared_package_token
+        if: ${{ inputs.prepared_package_run_id != '' }}
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.MACOS_PUBLISHER_CLIENT_ID }}
+          private-key: ${{ secrets.MACOS_PUBLISHER_APP_PRIVATE_KEY }}
+          owner: openclaw
+          repositories: openclaw
+          permission-actions: read
+
       - name: Download verified prepared package
         if: ${{ inputs.prepared_package_run_id != '' }}
         env:
-          GH_TOKEN: ${{ secrets.OPENCLAW_PUBLIC_REPO_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.prepared_package_token.outputs.token }}
           PREPARED_PACKAGE_RUN_ID: ${{ inputs.prepared_package_run_id }}
           RELEASE_TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -707,7 +718,7 @@ jobs:
             if [[ "$SMOKE_TEST_ONLY" == "true" ]]; then
               echo "Smoke-test mode skips production Sparkle appcast generation."
             elif [[ "$IS_BETA" != "true" ]]; then
-              echo "For stable releases, also download \`macos-appcast-${RELEASE_TAG}\` and commit the universal, arm64, and x86_64 appcasts back to \`main\` in \`${OPENCLAW_REPOSITORY}\`."
+              echo "For stable releases, promote these artifacts after validation. Promotion opens an appcast PR; feed publication remains pending until that PR merges."
             else
               echo "Beta release detected; no production Sparkle appcasts are generated."
             fi
