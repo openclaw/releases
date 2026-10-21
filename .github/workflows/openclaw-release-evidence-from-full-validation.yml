@@ -36,7 +36,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  NODE_VERSION: "24.x"
+  NODE_VERSION: "24.22.1"
   FULL_VALIDATION_RUN_ID: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.full_validation_run_id || inputs.full_validation_run_id }}
   RELEASE_ID: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_id || inputs.release_id }}
   RELEASE_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_ref || inputs.release_ref }}
