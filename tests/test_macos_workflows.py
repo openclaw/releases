@@ -809,7 +809,7 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                 self.assertEqual(result.returncode == 0, accepted, result.stderr)
                 if token:
                     self.assertEqual(json.loads((root / 'calls').read_text()), [
-                        'release', 'view', 'v2026.8.2', '--repo', 'openclaw/openclaw', '--json', 'tagName,isDraft,url'])
+                        'api', 'repos/openclaw/openclaw/releases/tags/v2026.8.2'])
                 else:
                     self.assertFalse((root / 'calls').exists())
                     self.assertIn('Missing macOS publisher installation token.', result.stderr)
@@ -817,6 +817,40 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                     state = 'draft' if (release | changes)['isDraft'] else 'public'
                     self.assertIn(f'Attaching to {state} release {release["url"]}; the npm publisher flips it public.',
                                   result.stdout)
+
+    def test_promotion_retries_transient_release_lookup_failures(self):
+        source = workflow('openclaw-macos-publish.yml')
+        name = 'Ensure matching GitHub release exists (draft or public)'
+        release = dict(tag_name='v2026.8.2', draft=True, html_url='https://example.invalid/release')
+        for status, accepted in [('404', True), ('500', True), ('401', False)]:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                gh = root / 'gh'
+                gh.write_text('#!/usr/bin/env python3\nimport json,os,sys\n'
+                              'attempts=os.environ["ATTEMPTS"]\n'
+                              'attempt=int(open(attempts).read())+1 if os.path.exists(attempts) else 1\n'
+                              'open(attempts,"w").write(str(attempt))\n'
+                              'if attempt == 1:\n'
+                              ' print(f"gh: transient response (HTTP {os.environ[\'GH_STATUS\']})", file=sys.stderr); sys.exit(1)\n'
+                              'print(os.environ["FIXTURE_RELEASE_JSON"])\n')
+                gh.chmod(0o755)
+                sleep = root / 'sleep'
+                sleep.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$SLEEPS"\n')
+                sleep.chmod(0o755)
+                result = subprocess.run(['bash', '-c', step_script(source, name)], capture_output=True, text=True,
+                                        env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                                 GH_TOKEN='fixture-token', RELEASE_TAG='v2026.8.2', GH_STATUS=status,
+                                                 OPENCLAW_REPOSITORY='openclaw/openclaw',
+                                                 FIXTURE_RELEASE_JSON=json.dumps(release),
+                                                 ATTEMPTS=str(root / 'attempts'), SLEEPS=str(root / 'sleeps')))
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual((root / 'attempts').read_text(), '2' if accepted else '1')
+                if accepted:
+                    self.assertEqual((root / 'sleeps').read_text().splitlines(), ['10'])
+                else:
+                    self.assertFalse((root / 'sleeps').exists())
+                    self.assertIn('refusing to retry an authentication failure', result.stderr)
+                self.assertIn(f'HTTP {status}', result.stderr)
 
     def test_preparation_needs_tag_but_release_page_only_for_promotion(self):
         publish = workflow('openclaw-macos-publish.yml')
