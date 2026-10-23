@@ -818,6 +818,50 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                     self.assertIn(f'Attaching to {state} release {release["url"]}; the npm publisher flips it public.',
                                   result.stdout)
 
+    def test_promotion_retries_transient_release_lookup_failures(self):
+        source = workflow('openclaw-macos-publish.yml')
+        name = 'Ensure matching GitHub release exists (draft or public)'
+        release = dict(tagName='v2026.8.2', isDraft=True, url='https://example.invalid/release')
+        for status, failures, attempts, accepted in [
+                ('404', 1, 2, True), ('500', 1, 2, True), ('503', 5, 6, True),
+                ('not-found', 1, 2, True), ('not-found', 6, 6, False),
+                ('404', 6, 6, False), ('500', 7, 6, False),
+                ('401', 1, 1, False), ('403', 1, 1, False),
+                ('422', 1, 1, False), ('unknown', 1, 1, False)]:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                gh = root / 'gh'
+                gh.write_text('#!/usr/bin/env python3\nimport json,os,sys\n'
+                              'attempts=os.environ["ATTEMPTS"]\n'
+                              'attempt=int(open(attempts).read())+1 if os.path.exists(attempts) else 1\n'
+                              'open(attempts,"w").write(str(attempt))\n'
+                              'if attempt <= int(os.environ["FAILURES"]):\n'
+                              ' print("release not found" if os.environ["GH_STATUS"] == "not-found" else f"gh: transient response (HTTP {os.environ[\'GH_STATUS\']})", file=sys.stderr); sys.exit(1)\n'
+                              'print(os.environ["FIXTURE_RELEASE_JSON"])\n')
+                gh.chmod(0o755)
+                sleep = root / 'sleep'
+                sleep.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$SLEEPS"\n')
+                sleep.chmod(0o755)
+                result = subprocess.run(['bash', '-c', step_script(source, name)], capture_output=True, text=True,
+                                        env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                                 GH_TOKEN='fixture-token', RELEASE_TAG='v2026.8.2', GH_STATUS=status,
+                                                 FAILURES=str(failures),
+                                                 OPENCLAW_REPOSITORY='openclaw/openclaw',
+                                                 FIXTURE_RELEASE_JSON=json.dumps(release),
+                                                 ATTEMPTS=str(root / 'attempts'), SLEEPS=str(root / 'sleeps')))
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertEqual((root / 'attempts').read_text(), str(attempts))
+                if attempts > 1:
+                    self.assertEqual((root / 'sleeps').read_text().splitlines(),
+                                     ['10', '20', '30', '45', '60'][:attempts - 1])
+                else:
+                    self.assertFalse((root / 'sleeps').exists())
+                if status == '401':
+                    self.assertIn('refusing to retry an authentication failure', result.stderr)
+                if not accepted and attempts == 6:
+                    self.assertIn('remained unavailable after 6 attempts', result.stderr)
+                self.assertIn('release not found' if status == 'not-found' else f'HTTP {status}', result.stderr)
+
     def test_preparation_needs_tag_but_release_page_only_for_promotion(self):
         publish = workflow('openclaw-macos-publish.yml')
         validate = workflow('openclaw-macos-validate.yml')

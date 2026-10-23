@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retry transient exact-tag GitHub release lookups before macOS promotion, with six attempts and immediate failure for authentication or other non-transient responses. Thanks @RomneyDa.
+
 - Install the separate Metal compiler component when missing on Xcode 27 runners, retaining full MLX voice-helper builds.
 
 - Keep disk-image creation working on macOS 27 while preserving read-only source snapshots and final compressed artifacts.

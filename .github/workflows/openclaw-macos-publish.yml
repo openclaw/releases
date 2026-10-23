@@ -675,7 +675,45 @@ jobs:
             echo "Missing macOS publisher installation token." >&2
             exit 1
           fi
-          RELEASE_JSON="$(gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" --json tagName,isDraft,url)"
+          RELEASE_LOOKUP_ERROR="$(mktemp)"
+          trap 'rm -f "$RELEASE_LOOKUP_ERROR"' EXIT
+          RETRY_DELAYS=(10 20 30 45 60)
+          ATTEMPT=1
+          MAX_ATTEMPTS=6
+          while true; do
+            if RELEASE_JSON="$(gh release view "$RELEASE_TAG" --repo "$OPENCLAW_REPOSITORY" --json tagName,isDraft,url 2>"$RELEASE_LOOKUP_ERROR")"; then
+              break
+            fi
+            ERROR_MESSAGE="$(cat "$RELEASE_LOOKUP_ERROR")"
+            HTTP_STATUS="unknown"
+            LOOKUP_STATUS="unknown error"
+            if [[ "$ERROR_MESSAGE" =~ HTTP[[:space:]]+([0-9]{3}) ]]; then
+              HTTP_STATUS="${BASH_REMATCH[1]}"
+              LOOKUP_STATUS="HTTP ${HTTP_STATUS}"
+            elif [[ "$ERROR_MESSAGE" == "release not found" ]]; then
+              LOOKUP_STATUS="release not found"
+            fi
+            echo "GitHub release lookup attempt ${ATTEMPT}/${MAX_ATTEMPTS} failed (${LOOKUP_STATUS})." >&2
+            printf '%s\n' "$ERROR_MESSAGE" >&2
+            if [[ "$HTTP_STATUS" == "401" ]]; then
+              echo "GitHub rejected the macOS publisher token; refusing to retry an authentication failure." >&2
+              exit 1
+            fi
+            if [[ "$ERROR_MESSAGE" != "release not found" && "$HTTP_STATUS" != "404" && ! "$HTTP_STATUS" =~ ^5[0-9]{2}$ ]]; then
+              echo "GitHub release lookup failed with a non-transient response; refusing to retry." >&2
+              exit 1
+            fi
+            if (( ATTEMPT >= MAX_ATTEMPTS )); then
+              echo "GitHub release lookup remained unavailable after ${MAX_ATTEMPTS} attempts." >&2
+              exit 1
+            fi
+            DELAY="${RETRY_DELAYS[$((ATTEMPT - 1))]}"
+            echo "Retrying the exact ${RELEASE_TAG} lookup in ${DELAY}s." >&2
+            sleep "$DELAY"
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          rm -f "$RELEASE_LOOKUP_ERROR"
+          trap - EXIT
           printf '%s' "$RELEASE_JSON" | node -e 'const fs = require("node:fs"); const release = JSON.parse(fs.readFileSync(0, "utf8")); if (release.tagName !== process.env.RELEASE_TAG) throw new Error("GitHub release tag does not match requested tag"); console.log(`Attaching to ${release.isDraft ? "draft" : "public"} release ${release.url}; the npm publisher flips it public.`);'
 
       - name: Upload packaged macOS assets to public GitHub release

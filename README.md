@@ -64,6 +64,11 @@ system tool. Snapshot immutability and final compressed artifacts are preserved.
 Promotion attaches assets to the matching GitHub release whether it is still a
 draft or already public. The core npm publisher flips it public.
 
+Before promotion, the draft-aware exact-tag lookup retries a missing release or
+HTTP 404 and 5xx responses up to six times, waiting 10, 20, 30, 45, and 60 seconds between attempts. Authentication
+and other non-transient failures stop immediately; a successful response must
+still match the requested tag before assets can be uploaded.
+
 ### Promote a validated beta to npm latest
 
 After the exact final release has passed stable/full validation, including soak
