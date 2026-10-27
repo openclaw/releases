@@ -49,13 +49,25 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
-      contents: write
+      contents: read
     steps:
+      - name: Create evidence PR token
+        id: evidence-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          app-id: 2729701
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: openclaw
+          repositories: releases
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Checkout release repo
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: main
+          token: ${{ steps.evidence-token.outputs.token }}
           persist-credentials: true
 
       - name: Setup Node.js
@@ -81,7 +93,7 @@ jobs:
             --package-spec "$PACKAGE_SPEC" \
             --notes-file "$RUNNER_TEMP/openclaw-release-evidence/notes.md"
 
-      - name: Append run summary
+      - name: Summarize generated evidence
         run: |
           set -euo pipefail
           evidence_md="evidence/${RELEASE_ID}/release-evidence.md"
@@ -91,5 +103,8 @@ jobs:
             echo "Evidence path: \`$evidence_md\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit evidence to main
+      - name: Propose evidence pull request
+        env:
+          GH_TOKEN: ${{ steps.evidence-token.outputs.token }}
+          EVIDENCE_APP_BOT: ${{ steps.evidence-token.outputs.app-slug }}[bot]
         run: bash scripts/publish-release-evidence.sh
