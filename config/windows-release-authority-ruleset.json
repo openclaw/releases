@@ -1,0 +1,36 @@
+{
+  "name": "Require release managers for Windows publication authority",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "repository_name": {
+      "include": ["releases", "openclaw-windows-packaging", "openclaw-windows-node"],
+      "exclude": [],
+      "protected": false
+    },
+    "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [
+          {
+            "minimum_approvals": 1,
+            "file_patterns": [".github/**", "scripts/**", "tests/**", "config/**", "release-policy.json", "store-submission.json", "docs/windows-store-publishing.md"],
+            "reviewer": { "id": 16590423, "type": "Team" }
+          }
+        ],
+        "require_code_owner_review": true,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "allowed_merge_methods": ["squash", "rebase"]
+      }
+    }
+  ]
+}
