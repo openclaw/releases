@@ -1,0 +1,222 @@
+name: Publish Windows Microsoft Store
+run-name: Store approval · ${{ inputs.product }} · source run ${{ inputs.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Store product whose approved release bundle will be submitted
+        type: choice
+        options: [gateway, companion]
+        required: true
+      run_id:
+        description: Successful canonical Windows release workflow run
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: microsoft-store-${{ inputs.product }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    name: Authorize source and prepare approval
+    if: github.repository == 'openclaw/releases' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      repository: ${{ steps.source.outputs.repository }}
+      artifact_id: ${{ steps.source.outputs.artifact_id }}
+      environment: ${{ steps.source.outputs.environment }}
+      source_json: ${{ steps.bundle.outputs.source_json }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Require the configured release-manager approval boundary
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_PRODUCT: ${{ inputs.product }}
+        run: |
+          Import-Module ./scripts/MicrosoftStore.psm1
+          Assert-MicrosoftStoreEnvironment -Product $env:STORE_PRODUCT
+      - name: Create source artifact reader
+        id: reader
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: "2729701"
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: openclaw
+          repositories: |
+            openclaw
+            openclaw-windows-packaging
+            openclaw-windows-node
+          permission-actions: read
+          permission-contents: read
+      - name: Resolve the fixed product's source and artifact
+        id: source
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.reader.outputs.token }}
+          STORE_PRODUCT: ${{ inputs.product }}
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          Import-Module ./scripts/MicrosoftStore.psm1
+          $source = Get-AuthorizedStoreSource -Product $env:STORE_PRODUCT -RunId $env:SOURCE_RUN_ID -Directory ./provenance
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'store-source.json'), ($source | ConvertTo-Json -Depth 10))
+          "repository=$($source.repository)" >> $env:GITHUB_OUTPUT
+          "artifact_id=$($source.artifactId)" >> $env:GITHUB_OUTPUT
+          "environment=$($source.environment)" >> $env:GITHUB_OUTPUT
+      - name: Download the immutable source artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          repository: ${{ steps.source.outputs.repository }}
+          run-id: ${{ inputs.run_id }}
+          artifact-ids: ${{ steps.source.outputs.artifact_id }}
+          github-token: ${{ steps.reader.outputs.token }}
+          merge-multiple: true
+          path: store
+      - name: Bind approval to the actual bundle bytes
+        id: bundle
+        shell: pwsh
+        run: |
+          Import-Module ./scripts/MicrosoftStore.psm1
+          $source = Get-Content (Join-Path $env:RUNNER_TEMP 'store-source.json') -Raw | ConvertFrom-Json
+          $approved = Confirm-AuthorizedStoreBundle -Source $source -Directory ./store
+          $json = $approved | ConvertTo-Json -Depth 10 -Compress
+          "source_json=$json" >> $env:GITHUB_OUTPUT
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'store-approved.json'), $json)
+          @(
+            '## Release-manager approval required'
+            "- Product: $($approved.product)"
+            "- Release: $($approved.releaseTag) at $($approved.sourceSha)"
+            "- Release identity: $($approved.releaseIdentityTag) at $($approved.releaseIdentitySha)"
+            "- Source: https://github.com/$($approved.repository)/actions/runs/$($approved.runId)/attempts/$($approved.runAttempt)"
+            "- Source pipeline: $($approved.pipelineSha)"
+            "- Package version: $($approved.packageVersion)"
+            "- Artifact ID: $($approved.artifactId)"
+            "- Bundle: $($approved.bundleName)"
+            "- Bundle SHA-256: $($approved.bundleSha256)"
+            "- Publisher code: $env:GITHUB_SHA"
+            'Approval permits submission of these bytes, not certification or public availability.'
+          ) >> $env:GITHUB_STEP_SUMMARY
+      - name: Retain the approval facts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-store-approved-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/store-approved.json
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: Approve and submit the exact Store bundle
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: ${{ needs.source.outputs.environment }}
+      url: https://github.com/${{ needs.source.outputs.repository }}/actions/runs/${{ inputs.run_id }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Create source artifact reader
+        id: reader
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: "2729701"
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: openclaw
+          repositories: |
+            openclaw
+            openclaw-windows-packaging
+            openclaw-windows-node
+          permission-actions: read
+          permission-contents: read
+      - name: Download the approved artifact ID
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          repository: ${{ needs.source.outputs.repository }}
+          run-id: ${{ inputs.run_id }}
+          artifact-ids: ${{ needs.source.outputs.artifact_id }}
+          github-token: ${{ steps.reader.outputs.token }}
+          merge-multiple: true
+          path: store
+      - name: Revalidate source authority and the approved bytes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ steps.reader.outputs.token }}
+          STORE_PRODUCT: ${{ inputs.product }}
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+          APPROVED_SOURCE: ${{ needs.source.outputs.source_json }}
+        run: |
+          Import-Module ./scripts/MicrosoftStore.psm1
+          $approved = $env:APPROVED_SOURCE | ConvertFrom-Json
+          $fresh = Get-AuthorizedStoreSource -Product $env:STORE_PRODUCT -RunId $env:SOURCE_RUN_ID -Directory ./provenance
+          Confirm-AuthorizedStoreBundle -Source $fresh -Directory ./store -ApprovedSource $approved | Out-Null
+      - name: Recheck the protection configuration before credential use
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_PRODUCT: ${{ inputs.product }}
+        run: |
+          Import-Module ./scripts/MicrosoftStore.psm1
+          Assert-MicrosoftStoreEnvironment -Product $env:STORE_PRODUCT
+      - name: Request the environment-bound Store assertion
+        id: oidc
+        shell: pwsh
+        run: |
+          $uri = ./scripts/New-GitHubOidcRequestUri.ps1 -RequestUri $env:ACTIONS_ID_TOKEN_REQUEST_URL -Audience 'api://AzureADTokenExchange'
+          $response = Invoke-RestMethod -Uri $uri -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" }
+          if ([string]::IsNullOrWhiteSpace([string]$response.value)) { throw 'GitHub returned an empty Store assertion.' }
+          "::add-mask::$($response.value)"
+          $path = Join-Path $env:RUNNER_TEMP 'store-assertion.jwt'
+          [IO.File]::WriteAllText($path, [string]$response.value)
+          & chmod 600 $path
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to restrict Store assertion permissions.' }
+          "assertion_path=$path" >> $env:GITHUB_OUTPUT
+      - name: Submit and commit the approved Store update
+        shell: pwsh
+        env:
+          STORE_PRODUCT: ${{ inputs.product }}
+          APPROVED_SOURCE: ${{ needs.source.outputs.source_json }}
+          MSSTORE_TENANT_ID: ${{ vars.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ vars.MSSTORE_CLIENT_ID }}
+          MSSTORE_APPLICATION_ID: ${{ vars.MSSTORE_APPLICATION_ID }}
+          MSSTORE_ASSERTION_FILE: ${{ steps.oidc.outputs.assertion_path }}
+        run: |
+          Import-Module ./scripts/MicrosoftStore.psm1
+          $config = Get-MicrosoftStoreProduct $env:STORE_PRODUCT
+          $approved = $env:APPROVED_SOURCE | ConvertFrom-Json
+          ./scripts/Submit-MicrosoftStore.ps1 -BundlePath (Join-Path ./store $approved.bundleName) `
+            -ApplicationId $env:MSSTORE_APPLICATION_ID -TenantId $env:MSSTORE_TENANT_ID -ClientId $env:MSSTORE_CLIENT_ID `
+            -PackageIdentityName $config.identityName -Publisher $config.publisher `
+            -ClientAssertionFile $env:MSSTORE_ASSERTION_FILE -EvidencePath ./evidence/store-submission.json
+          [IO.File]::WriteAllText((Join-Path $PWD 'evidence/approved-source.json'), ($approved | ConvertTo-Json -Depth 10))
+      - name: Retain Microsoft commit evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-store-submission-${{ inputs.product }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove the short-lived assertion
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          ASSERTION_PATH: ${{ steps.oidc.outputs.assertion_path }}
+        run: |
+          if ($env:ASSERTION_PATH) { Remove-Item -LiteralPath $env:ASSERTION_PATH -Force -ErrorAction SilentlyContinue }
