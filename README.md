@@ -384,10 +384,20 @@ gh workflow run openclaw-release-evidence-from-full-validation.yml \
   -f package_spec=openclaw@2026.4.24
 ```
 
+## Tideclaw instructions
+
+[`tideclaw/`](tideclaw/README.md) contains a reviewed, sanitized snapshot of the
+Tideclaw instance's reusable automation prompts, local skill, and workspace
+instructions. It is documentation only, not a runnable backup or permission to
+activate jobs. Shared release skills remain canonical in `openclaw/openclaw`.
+
 ## Storage Policy
 
 Store only release summaries, normalized run metadata, artifact metadata, timing
-summaries, package specs, and short release-manager notes here.
+summaries, package specs, short release-manager notes, and reviewed reusable
+operational instructions under `tideclaw/` here. The latter may include authored
+automation prompts, but never captured provider/system prompts or responses,
+private user memory, live scheduler state, or credential-bearing configuration.
 
 Do not commit:
 

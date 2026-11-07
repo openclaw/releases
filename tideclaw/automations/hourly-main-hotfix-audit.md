@@ -1,0 +1,1 @@
+Run the hotfix-opportunity audit described in <AUDIT_WORKSPACE>/.openclaw/hotfix-audit/AUTOMATION.md. Read the current file in full on every run and apply its triage-first eligibility and full-range completion requirements. Use the existing checkpoint in main-hotfix-audit.log; never silently initialize or reset it.

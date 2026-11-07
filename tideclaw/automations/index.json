@@ -1,0 +1,81 @@
+{
+  "snapshotDate": "2026-11-07",
+  "purpose": "Reference only; not an importable live scheduler configuration. Bind an operator, permissions, workspace and delivery explicitly before activation.",
+  "automations": [
+    {
+      "key": "hourly-main-hotfix-audit",
+      "name": "Hourly main hotfix audit",
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 * * * *",
+        "tz": "UTC",
+        "staggerMs": 300000
+      },
+      "execution": "isolated",
+      "timeoutSeconds": 3000,
+      "toolsAllow": [
+        "*"
+      ],
+      "promptFile": "hourly-main-hotfix-audit.md"
+    },
+    {
+      "key": "daily-hotfix-quality-review",
+      "name": "Daily hotfix audit quality review",
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 9 * * *",
+        "tz": "America/Los_Angeles",
+        "staggerMs": 0
+      },
+      "execution": "isolated",
+      "timeoutSeconds": 3000,
+      "toolsAllow": [
+        "*"
+      ],
+      "promptFile": "daily-hotfix-quality-review.md"
+    },
+    {
+      "key": "daily-release-skills-automation-review",
+      "name": "Release skills & automations audit",
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 10 * * *",
+        "tz": "America/Los_Angeles",
+        "staggerMs": 0
+      },
+      "execution": "existing-session",
+      "timeoutSeconds": 3000,
+      "toolsAllow": [
+        "read",
+        "edit",
+        "write",
+        "apply_patch",
+        "exec",
+        "process",
+        "skills_read",
+        "automations",
+        "github_publish",
+        "skill_workshop",
+        "sessions_history",
+        "sessions_search"
+      ],
+      "promptFile": "daily-release-skills-automation-review.md"
+    },
+    {
+      "key": "hourly-ubuntu-kernel-status",
+      "name": "Hourly Ubuntu kernel fix status — CVE-2026-98432",
+      "schedule": {
+        "kind": "every",
+        "everyMs": 3600000
+      },
+      "execution": "current",
+      "timeoutSeconds": 180,
+      "toolsAllow": [
+        "automations",
+        "web_fetch"
+      ],
+      "promptFile": "hourly-ubuntu-kernel-status.md",
+      "triggerFile": "hourly-ubuntu-kernel-status.trigger.mjs"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+Perform the daily hotfix audit quality review directly in this fresh isolated automation session. The user explicitly requested a new session for each scheduled review and authorized evidence-backed improvements to the hourly audit. Do not create a second launcher/review session.
+
+Workspace: <AUDIT_WORKSPACE>. Read and follow its .openclaw/hotfix-audit/DAILY-REVIEW.md in full. Analyze the hourly audit's performance and judgment, apply justified improvements within that scope, verify them, and append findings and exact changes to .openclaw/hotfix-audit/main-hotfix-audit-review.log. Use durable audit/review logs and this job's scratch for continuity, not previous chat history.
+
+Respect current tool authority; do not bypass denied operations or use another session to acquire permissions. No product code edits, releases, deployments, recursive jobs or helper sessions. Preserve any unfinished review and avoid overlapping edits; do not modify instructions while an hourly audit is actively using them. A blocked cross-job scheduler operation remains blocked; report a concrete proposed change instead.
+
+Complete a coherent review within 45 minutes. Return a concise final result with verified changes, evidence, and new blockers; the scheduler owns delivery to the Backport manager conversation. No manual duplicate notification. Unchanged conditions or repeated known blockers: record_result no_change and return NO_REPLY. Otherwise record the appropriate result and summary. A started review is not a completed review.
