@@ -199,14 +199,17 @@ function Invoke-Submission {
     param(
         [string]$PolicyPath = (Join-Path $testRoot 'policy.json'),
         [string]$BundlePath = (Join-Path $testRoot 'OpenClaw.msixbundle'),
-        [string]$EvidencePath = (Join-Path $testRoot 'evidence.json')
+        [string]$EvidencePath = (Join-Path $testRoot 'evidence.json'),
+        [switch]$DefaultUpload
     )
+    $uploadParameters = @{}
+    if (-not $DefaultUpload) { $uploadParameters.UploadInvoker = $uploadInvoker }
     & $scriptPath -BundlePath $BundlePath -ApplicationId $applicationId `
         -PackageIdentityName 'Test.OpenClaw' -Publisher 'CN=Test' `
         -TenantId $tenantId -ClientId $clientId `
         -ClientAssertionFile (Join-Path $testRoot 'assertion.jwt') `
         -PolicyPath $PolicyPath -EvidencePath $EvidencePath `
-        -HttpInvoker $httpInvoker -UploadInvoker $uploadInvoker
+        -HttpInvoker $httpInvoker @uploadParameters
 }
 
 New-Item -Path $testRoot -ItemType Directory | Out-Null
@@ -252,6 +255,41 @@ try {
         [string]$evidence.publishedMetadataSha256 -cne [string]$evidence.draftMetadataSha256 -or
         [string]$evidence.preparedMutationSha256 -cne [string]$evidence.verifiedMutationSha256) {
         throw 'Store evidence did not bind the verified and committed draft.'
+    }
+
+    $savedWebRequest = Get-Item Function:global:Invoke-WebRequest -ErrorAction SilentlyContinue
+    try {
+        function global:Invoke-WebRequest {
+            param($Method, [string]$Uri, $InFile, $TimeoutSec, $ContentType, $Headers)
+            $query = [Web.HttpUtility]::ParseQueryString(([uri]$Uri).Query)
+            $versions = $query.GetValues('api-version')
+            if ($null -eq $versions -or $versions.Count -ne 1 -or $versions[0] -cne '2019-12-12') {
+                throw 'Default uploader did not select the large-upload Blob protocol.'
+            }
+            if ($query['sv'] -cne '2014-02-14' -or $query['sig'] -cne 'fixture+signature/=' -or
+                $query['sr'] -cne 'b' -or $query['sp'] -cne 'rwl') { throw 'Uploader changed signed SAS authorization.' }
+            if ($Method -ine 'Put' -or $ContentType -cne 'application/zip' -or $TimeoutSec -ne 1800 -or
+                $Headers['x-ms-blob-type'] -cne 'BlockBlob') { throw 'Uploader changed the Blob request contract.' }
+            $archive = [IO.Compression.ZipFile]::OpenRead($InFile)
+            try {
+                if (@($archive.Entries).Count -ne 1 -or $archive.Entries[0].FullName -cne 'OpenClaw.msixbundle') {
+                    throw 'Uploader did not send the single authorized bundle archive.'
+                }
+            } finally { $archive.Dispose() }
+            $global:OpenClawStoreTest_defaultUploadCalls++
+        }
+        foreach ($suffix in @('', '&api-version=2014-02-14')) {
+            Reset-Fixture
+            $global:OpenClawStoreTest_defaultUploadCalls = 0
+            $global:OpenClawStoreTest_published.FileUploadUrl = 'https://storage.example.invalid/upload?sv=2014-02-14&sr=b&sig=fixture%2Bsignature%2F%3D&sp=rwl' + $suffix
+            Invoke-Submission -DefaultUpload
+            if ($global:OpenClawStoreTest_defaultUploadCalls -ne 1 -or $null -ne $global:OpenClawStoreTest_pendingId) {
+                throw 'Default uploader did not finish its owned submission.'
+            }
+        }
+    } finally {
+        if ($null -eq $savedWebRequest) { Remove-Item Function:global:Invoke-WebRequest }
+        else { Set-Item Function:global:Invoke-WebRequest $savedWebRequest.ScriptBlock }
     }
 
     Reset-Fixture

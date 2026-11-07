@@ -2,6 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$BundlePath,
     [Parameter(Mandatory)][string]$ApplicationId,
+    [ValidateSet('production', 'development')][string]$Channel = 'production',
+    [string]$FlightId,
     [Parameter(Mandatory)][string]$PackageIdentityName,
     [Parameter(Mandatory)][string]$Publisher,
     [Parameter(Mandatory)][guid]$TenantId,
@@ -15,6 +17,18 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$Channel = $Channel.ToLowerInvariant()
+$isFlight = $Channel -ceq 'development'
+$parsedFlightId = [guid]::Empty
+if ($isFlight -and -not [guid]::TryParse($FlightId, [ref]$parsedFlightId)) {
+    throw 'Development submission requires the configured flight ID.'
+}
+if (-not $isFlight -and -not [string]::IsNullOrWhiteSpace($FlightId)) {
+    throw 'Production submission must not specify a flight ID.'
+}
+$packagesProperty = if ($isFlight) { 'FlightPackages' } else { 'ApplicationPackages' }
+$pendingProperty = if ($isFlight) { 'PendingFlightSubmission' } else { 'PendingApplicationSubmission' }
+$publishedProperty = if ($isFlight) { 'LastPublishedFlightSubmission' } else { 'LastPublishedApplicationSubmission' }
 
 function Assert-NonEmptyValue {
     param([Parameter(Mandatory)][string]$Name, [AllowEmptyString()][string]$Value)
@@ -52,7 +66,7 @@ function ConvertTo-CanonicalValue {
 function Get-SubmissionMetadata {
     param([Parameter(Mandatory)][psobject]$Submission)
     $metadata = [ordered]@{}
-    foreach ($name in @(
+    $metadataNames = if ($isFlight) { @('TargetPublishMode', 'TargetPublishDate', 'NotesForCertification') } else { @(
         'ApplicationCategory', 'Pricing', 'Visibility', 'TargetPublishMode',
         'TargetPublishDate', 'Listings', 'HardwarePreferences',
         'AutomaticBackupEnabled', 'CanInstallOnRemovableMedia', 'IsGameDvrEnabled',
@@ -60,7 +74,8 @@ function Get-SubmissionMetadata {
         'NotesForCertification', 'EnterpriseLicensing',
         'AllowMicrosoftDecideAppAvailabilityToFutureDeviceFamilies',
         'AllowTargetFutureDeviceFamilies', 'Trailers'
-    )) {
+    ) }
+    foreach ($name in $metadataNames) {
         # Conditional metadata is omitted by valid Store responses. Preserve it
         # when applicable, without requiring an Immediate submission's date.
         if ($name -eq 'TargetPublishDate' -and $Submission.TargetPublishMode -ne 'SpecificDate') { continue }
@@ -119,7 +134,7 @@ function Get-SubmissionMutationHash {
     param([Parameter(Mandatory)][psobject]$Submission)
     # Partner Center owns package IDs, architecture, version and upload status.
     # Compare only our requested files/actions and editable delivery settings.
-    $packages = @(foreach ($package in @(Get-RequiredProperty $Submission 'ApplicationPackages')) {
+    $packages = @(foreach ($package in @(Get-RequiredProperty $Submission $packagesProperty)) {
         $status = [string](Get-RequiredProperty $package 'FileStatus')
         if ($status -notin @('PendingUpload', 'Uploaded', 'PendingDelete')) { throw 'Unexpected Store package status.' }
         [ordered]@{
@@ -221,7 +236,16 @@ if ($null -eq $HttpInvoker) {
 if ($null -eq $UploadInvoker) {
     $UploadInvoker = {
         param($Uri, $Path, $TimeoutSeconds)
-        Invoke-WebRequest -Method Put -Uri $Uri -InFile $Path -TimeoutSec $TimeoutSeconds `
+        # SAS sv selects authorization, not a suitable large-blob protocol.
+        # Keep every signed value intact and select a 5,000 MiB single-PUT API.
+        $destination = [UriBuilder]::new($Uri)
+        $query = @($destination.Query.TrimStart('?') -split '&' | Where-Object {
+            $_ -and [Uri]::UnescapeDataString(($_ -split '=', 2)[0]) -ine 'api-version'
+        })
+        $destination.Query = (@($query) + 'api-version=2019-12-12') -join '&'
+        $uploadUri = $destination.Uri.AbsoluteUri
+        if ($env:GITHUB_ACTIONS -eq 'true') { Write-Output "::add-mask::$uploadUri" }
+        Invoke-WebRequest -Method Put -Uri $uploadUri -InFile $Path -TimeoutSec $TimeoutSeconds `
             -ContentType 'application/zip' -Headers @{ 'x-ms-blob-type' = 'BlockBlob' } | Out-Null
     }
 }
@@ -243,6 +267,8 @@ if ($env:GITHUB_ACTIONS -eq 'true') { Write-Output "::add-mask::$accessToken" }
 
 $apiBase = [string]$policy.apiBaseUri
 $encodedApplicationId = [Uri]::EscapeDataString($ApplicationId)
+$applicationPath = "/v1.0/my/applications/$encodedApplicationId"
+$targetPath = if ($isFlight) { "$applicationPath/flights/$([Uri]::EscapeDataString($FlightId))" } else { $applicationPath }
 $apiHeaders = @{ Authorization = "Bearer $accessToken"; TenantId = $TenantId.ToString() }
 function Invoke-StoreApi {
     param(
@@ -255,8 +281,11 @@ function Invoke-StoreApi {
 }
 function Assert-OwnedDraft {
     param([Parameter(Mandatory)][string]$SubmissionId)
-    $application = Invoke-StoreApi -Method Get -Path "/v1.0/my/applications/$encodedApplicationId"
-    $pending = Get-RequiredProperty $application 'PendingApplicationSubmission'
+    $target = Invoke-StoreApi -Method Get -Path $targetPath
+    if ($isFlight -and [string](Get-RequiredProperty $target 'FlightId') -cne $FlightId) {
+        throw 'Store returned a different flight.'
+    }
+    $pending = Get-RequiredProperty $target $pendingProperty
     if ($null -eq $pending -or [string](Get-RequiredProperty $pending 'Id') -cne $SubmissionId) {
         throw 'The Store pending submission is no longer the automation-owned draft.'
     }
@@ -275,35 +304,57 @@ try {
         [string](Get-RequiredProperty $application 'PublisherName') -cne $Publisher) {
         throw 'Microsoft Store product does not match the approved package identity.'
     }
-    # Partner Center omits this pointer when no submission is pending.
-    $pendingSubmission = $application.PSObject.Properties['PendingApplicationSubmission']
+    $target = $application
+    if ($isFlight) {
+        $target = Invoke-StoreApi -Method Get -Path $targetPath
+        if ([string](Get-RequiredProperty $target 'FlightId') -cne $FlightId) {
+            throw 'Store returned a different flight.'
+        }
+        if (@(Get-RequiredProperty $target 'GroupIds').Count -eq 0) {
+            throw 'The development flight must have a tester group.'
+        }
+    }
+    $pendingSubmission = $target.PSObject.Properties[$pendingProperty]
     if ($null -ne $pendingSubmission -and $null -ne $pendingSubmission.Value) {
         throw 'Partner Center already has a pending submission; automation will not replace it.'
     }
-    $publishedInfo = Get-RequiredProperty $application 'LastPublishedApplicationSubmission'
-    if ($null -eq $publishedInfo) { throw 'The Partner Center product must have a published submission.' }
-    $publishedId = [string](Get-RequiredProperty $publishedInfo 'Id')
-    Assert-NonEmptyValue -Name 'Published submission ID' -Value $publishedId
-    $encodedPublishedId = [Uri]::EscapeDataString($publishedId)
-    $published = Invoke-StoreApi -Method Get `
-        -Path "/v1.0/my/applications/$encodedApplicationId/submissions/$encodedPublishedId"
-    $publishedMetadataHash = Get-SubmissionMetadataHash $published
+    $publishedInfo = $target.PSObject.Properties[$publishedProperty]
+    $publishedId = ''
+    $publishedMetadataHash = ''
+    if ($null -ne $publishedInfo -and $null -ne $publishedInfo.Value) {
+        $publishedId = [string](Get-RequiredProperty $publishedInfo.Value 'Id')
+        Assert-NonEmptyValue -Name 'Published submission ID' -Value $publishedId
+        $encodedPublishedId = [Uri]::EscapeDataString($publishedId)
+        $published = Invoke-StoreApi -Method Get -Path "$targetPath/submissions/$encodedPublishedId"
+        $publishedMetadataHash = Get-SubmissionMetadataHash $published
+    } elseif (-not $isFlight) {
+        throw 'The Partner Center product must have a published submission.'
+    }
 
     $draft = Invoke-StoreApi -Method Post `
-        -Path "/v1.0/my/applications/$encodedApplicationId/submissions?isMinimalResponse=true"
+        -Path $(if ($isFlight) { "$targetPath/submissions" } else { "$targetPath/submissions?isMinimalResponse=true" })
     $draftId = [string](Get-RequiredProperty $draft 'Id')
     Assert-NonEmptyValue -Name 'Draft submission ID' -Value $draftId
     $encodedDraftId = [Uri]::EscapeDataString($draftId)
     Assert-OwnedDraft -SubmissionId $draftId
     $draft = Invoke-StoreApi -Method Get `
-        -Path "/v1.0/my/applications/$encodedApplicationId/submissions/$encodedDraftId"
+        -Path "$targetPath/submissions/$encodedDraftId"
     if ([string](Get-RequiredProperty $draft 'Id') -cne $draftId) {
         throw 'Store returned a different draft than the automation created.'
     }
     $uploadUri = [string](Get-RequiredProperty $draft 'FileUploadUrl')
     Assert-NonEmptyValue -Name 'Draft upload URL' -Value $uploadUri
+    if ($env:GITHUB_ACTIONS -eq 'true') { Write-Output "::add-mask::$uploadUri" }
 
-    $packages = @(Get-RequiredProperty $draft 'ApplicationPackages')
+    if ($isFlight -and [string](Get-RequiredProperty $draft 'FlightId') -cne $FlightId) {
+        throw 'Store returned a submission for a different flight.'
+    }
+    # A first flight has no published baseline; preserve its freshly created settings.
+    if (-not $publishedMetadataHash) {
+        $published = $draft | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+        $publishedMetadataHash = Get-SubmissionMetadataHash $published
+    }
+    $packages = @(Get-RequiredProperty $draft $packagesProperty)
     foreach ($package in $packages) { $package.FileStatus = 'PendingDelete' }
     $packages += [pscustomobject]@{
         FileName = [IO.Path]::GetFileName($resolvedBundle)
@@ -311,7 +362,7 @@ try {
         minimumDirectXVersion = 'None'
         minimumSystemRam = 'None'
     }
-    $draft.ApplicationPackages = $packages
+    $draft.$packagesProperty = $packages
     $deliveryOptions = Get-RequiredProperty $draft 'PackageDeliveryOptions'
     if ($null -ne $deliveryOptions) {
         $packageRollout = Get-RequiredProperty $deliveryOptions 'PackageRollout'
@@ -324,7 +375,7 @@ try {
 
     $draftMutationHash = Get-SubmissionMutationHash $draft
     $draft = Invoke-StoreApi -Method Put `
-        -Path "/v1.0/my/applications/$encodedApplicationId/submissions/$encodedDraftId" `
+        -Path "$targetPath/submissions/$encodedDraftId" `
         -Body $draft
     if ([string](Get-RequiredProperty $draft 'Id') -cne $draftId) {
         throw 'Store updated a different draft than the automation owns.'
@@ -342,9 +393,12 @@ try {
 
     Assert-OwnedDraft -SubmissionId $draftId
     $verifiedDraft = Invoke-StoreApi -Method Get `
-        -Path "/v1.0/my/applications/$encodedApplicationId/submissions/$encodedDraftId"
+        -Path "$targetPath/submissions/$encodedDraftId"
     if ([string](Get-RequiredProperty $verifiedDraft 'Id') -cne $draftId) {
         throw 'Store verification returned an unowned draft.'
+    }
+    if ($isFlight -and [string](Get-RequiredProperty $verifiedDraft 'FlightId') -cne $FlightId) {
+        throw 'Store verification returned a different flight.'
     }
     $draftMetadataHash = Get-SubmissionMetadataHash $verifiedDraft
     if ($draftMetadataHash -cne $publishedMetadataHash) {
@@ -365,7 +419,7 @@ try {
     # reports a terminal rejection.
     $draftDeletionAllowed = $false
     $commit = Invoke-StoreApi -Method Post `
-        -Path "/v1.0/my/applications/$encodedApplicationId/submissions/$encodedDraftId/Commit"
+        -Path "$targetPath/submissions/$encodedDraftId/Commit"
     $commitStatus = [string](Get-RequiredProperty $commit 'Status')
     if ($commitStatus -cne 'CommitStarted') {
         if ($commitStatus -cin @('CommitFailed', 'Canceled')) {
@@ -381,6 +435,8 @@ try {
         [ordered]@{
             schemaVersion = 1
             applicationId = $ApplicationId
+            channel = $Channel
+            flightId = $FlightId
             bundleFileName = [IO.Path]::GetFileName($resolvedBundle)
             bundleSha256 = (Get-FileHash -LiteralPath $resolvedBundle -Algorithm SHA256).Hash.ToLowerInvariant()
             publishedSubmissionId = $publishedId
@@ -402,7 +458,7 @@ catch {
         try {
             $encodedDraftId = [Uri]::EscapeDataString($draftId)
             Invoke-StoreApi -Method Delete `
-                -Path "/v1.0/my/applications/$encodedApplicationId/submissions/$encodedDraftId" |
+                -Path "$targetPath/submissions/$encodedDraftId" |
                 Out-Null
         }
         catch {

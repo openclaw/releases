@@ -1,5 +1,5 @@
 name: Publish Windows Microsoft Store
-run-name: Store approval · ${{ inputs.product }} · source run ${{ inputs.run_id }}
+run-name: Store approval · ${{ inputs.product }} · ${{ inputs.channel }} · source run ${{ inputs.run_id }}
 
 on:
   workflow_dispatch:
@@ -12,6 +12,17 @@ on:
       run_id:
         description: Successful canonical Windows release workflow run
         type: string
+        required: true
+      channel:
+        description: Store destination (Development is the Gateway beta flight)
+        type: choice
+        options: [production, development]
+        default: production
+        required: true
+      automatic:
+        description: Automated release handoff (Development requires activation)
+        type: boolean
+        default: false
         required: true
 
 permissions: {}
@@ -67,9 +78,15 @@ jobs:
           GH_TOKEN: ${{ steps.reader.outputs.token }}
           STORE_PRODUCT: ${{ inputs.product }}
           SOURCE_RUN_ID: ${{ inputs.run_id }}
+          STORE_CHANNEL: ${{ inputs.channel }}
+          STORE_AUTOMATIC: ${{ inputs.automatic && 'true' || 'false' }}
+          DEVELOPMENT_FLIGHT_ID: ${{ vars.MSSTORE_GATEWAY_DEVELOPMENT_FLIGHT_ID }}
+          DEVELOPMENT_ENABLED: ${{ vars.MSSTORE_GATEWAY_DEVELOPMENT_ENABLED }}
         run: |
           Import-Module ./scripts/MicrosoftStore.psm1
-          $source = Get-AuthorizedStoreSource -Product $env:STORE_PRODUCT -RunId $env:SOURCE_RUN_ID -Directory ./provenance
+          $source = Get-AuthorizedStoreSource -Product $env:STORE_PRODUCT -RunId $env:SOURCE_RUN_ID -Directory ./provenance `
+            -Channel $env:STORE_CHANNEL -DevelopmentFlightId $env:DEVELOPMENT_FLIGHT_ID `
+            -Automatic ($env:STORE_AUTOMATIC -ceq 'true') -DevelopmentEnabled $env:DEVELOPMENT_ENABLED
           [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'store-source.json'), ($source | ConvertTo-Json -Depth 10))
           "repository=$($source.repository)" >> $env:GITHUB_OUTPUT
           "artifact_id=$($source.artifactId)" >> $env:GITHUB_OUTPUT
@@ -96,6 +113,8 @@ jobs:
           @(
             '## Release-manager approval required'
             "- Product: $($approved.product)"
+            "- Store destination: $($approved.channel)"
+            "- Flight GUID: $($approved.flightId)"
             "- Release: $($approved.releaseTag) at $($approved.sourceSha)"
             "- Release identity: $($approved.releaseIdentityTag) at $($approved.releaseIdentitySha)"
             "- Source: https://github.com/$($approved.repository)/actions/runs/$($approved.runId)/attempts/$($approved.runAttempt)"
@@ -161,10 +180,16 @@ jobs:
           STORE_PRODUCT: ${{ inputs.product }}
           SOURCE_RUN_ID: ${{ inputs.run_id }}
           APPROVED_SOURCE: ${{ needs.source.outputs.source_json }}
+          STORE_CHANNEL: ${{ inputs.channel }}
+          STORE_AUTOMATIC: ${{ inputs.automatic && 'true' || 'false' }}
+          DEVELOPMENT_FLIGHT_ID: ${{ vars.MSSTORE_GATEWAY_DEVELOPMENT_FLIGHT_ID }}
+          DEVELOPMENT_ENABLED: ${{ vars.MSSTORE_GATEWAY_DEVELOPMENT_ENABLED }}
         run: |
           Import-Module ./scripts/MicrosoftStore.psm1
           $approved = $env:APPROVED_SOURCE | ConvertFrom-Json
-          $fresh = Get-AuthorizedStoreSource -Product $env:STORE_PRODUCT -RunId $env:SOURCE_RUN_ID -Directory ./provenance
+          $fresh = Get-AuthorizedStoreSource -Product $env:STORE_PRODUCT -RunId $env:SOURCE_RUN_ID -Directory ./provenance `
+            -Channel $env:STORE_CHANNEL -DevelopmentFlightId $env:DEVELOPMENT_FLIGHT_ID `
+            -Automatic ($env:STORE_AUTOMATIC -ceq 'true') -DevelopmentEnabled $env:DEVELOPMENT_ENABLED
           Confirm-AuthorizedStoreBundle -Source $fresh -Directory ./store -ApprovedSource $approved | Out-Null
       - name: Recheck the protection configuration before credential use
         shell: pwsh
@@ -200,7 +225,10 @@ jobs:
           Import-Module ./scripts/MicrosoftStore.psm1
           $config = Get-MicrosoftStoreProduct $env:STORE_PRODUCT
           $approved = $env:APPROVED_SOURCE | ConvertFrom-Json
+          $destination = @{ Channel = $approved.channel }
+          if ($approved.channel -ceq 'development') { $destination.FlightId = $approved.flightId }
           ./scripts/Submit-MicrosoftStore.ps1 -BundlePath (Join-Path ./store $approved.bundleName) `
+            @destination `
             -ApplicationId $env:MSSTORE_APPLICATION_ID -TenantId $env:MSSTORE_TENANT_ID -ClientId $env:MSSTORE_CLIENT_ID `
             -PackageIdentityName $config.identityName -Publisher $config.publisher `
             -ClientAssertionFile $env:MSSTORE_ASSERTION_FILE -EvidencePath ./evidence/store-submission.json
