@@ -21,7 +21,8 @@ import zipfile
 
 IDENTITY = 'Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)'
 TEAM = 'FWJYW4S8P8'
-ALLOWED_ACTORS = ["jalehman"]
+# Mirror release-managers-openclaw membership, plus the authorized test operator.
+ALLOWED_ACTORS = ["vincentkoc", "steipete", "joshavant", "RomneyDa", "Patrick-Erichsen", "jalehman"]
 FEED = 'https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml'
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 

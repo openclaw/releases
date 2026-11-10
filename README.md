@@ -76,10 +76,13 @@ release manager or Josh must approve **both this workflow's merge and each
 `mac-release` run**, including its exact source commit and build version. It is
 not dispatched by PRs or by another workflow. The existing main-only environment
 policy remains intact; it currently has no required-reviewer gate, so approval
-must precede dispatch. Both jobs enforce the trusted `ALLOWED_ACTORS = ["jalehman"]`
-list against **both** `GITHUB_ACTOR` and `GITHUB_TRIGGERING_ACTOR`; a rerun by anyone
-else is rejected. Adding an operator requires a reviewed code change. Do not use
-this path for unreviewed contributor code.
+must precede dispatch. Both jobs enforce the trusted static `ALLOWED_ACTORS` list
+against **both** `GITHUB_ACTOR` and `GITHUB_TRIGGERING_ACTOR`; anyone outside the
+list is rejected, including on reruns. The list mirrors `release-managers-openclaw`
+(`vincentkoc`, `steipete`, `joshavant`, `RomneyDa`, `Patrick-Erichsen`), plus the
+explicitly authorized test operator `jalehman`. It must be updated through a
+reviewed code change whenever team membership changes. There is no live team
+lookup or additional token. Do not use this path for unreviewed contributor code.
 
 Before candidate checkout and again in the signing job **before any signing secret
 is materialized**, admission calls GitHub's canonical

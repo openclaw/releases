@@ -36,6 +36,16 @@ class TestBuildTests(unittest.TestCase):
         return io.BytesIO(json.dumps([{'name': 'reviewed-native',
                                       'commit': {'sha': ENV['SOURCE_SHA']}}]).encode())
 
+    def test_release_managers_and_test_operator_can_dispatch_and_rerun(self):
+        expected = {'vincentkoc', 'steipete', 'joshavant', 'RomneyDa', 'Patrick-Erichsen', 'jalehman'}
+        self.assertEqual(set(build.ALLOWED_ACTORS), expected)
+        for actor in expected:
+            for key in ('GITHUB_ACTOR', 'GITHUB_TRIGGERING_ACTOR'):
+                with self.subTest(actor=actor, key=key), \
+                     patch.object(build, 'urlopen', side_effect=self.admitted_response) as network:
+                    build.admit(ENV | {key: actor})
+                    self.assertEqual(network.call_count, 2)
+
     def test_actor_and_rerun_admission_precedes_network_access(self):
         for update in [dict(GITHUB_ACTOR='other'), dict(GITHUB_TRIGGERING_ACTOR='other'),
                        dict(GITHUB_ACTOR=''), dict(GITHUB_TRIGGERING_ACTOR='')]:
