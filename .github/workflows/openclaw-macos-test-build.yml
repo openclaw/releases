@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Reviewed exact 40-character openclaw/openclaw commit (executes code; approve before dispatch)
+        description: Reviewed exact 40-character openclaw/openclaw branch-head SHA (approve before dispatch)
         required: true
         type: string
       version_override:
@@ -37,8 +37,9 @@ jobs:
           path: release-tools
           persist-credentials: false
 
-      - name: Admit explicit test-build inputs
+      - name: Admit actor, canonical source and test-build inputs
         env:
+          GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           VERSION_OVERRIDE: ${{ inputs.version_override }}
         run: |
@@ -149,8 +150,9 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts
 
-      - name: Recheck stable version floor before signing
+      - name: Recheck actor, canonical source and version before signing secrets
         env:
+          GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           VERSION_OVERRIDE: ${{ inputs.version_override }}
           UNSIGNED_ARTIFACT_ID: ${{ needs.build.outputs.unsigned_artifact_id }}

@@ -2,6 +2,7 @@
 """Admit and sign test apps without running candidate code in the signing job."""
 import base64
 import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import plistlib
@@ -14,12 +15,13 @@ import stat
 import subprocess
 import sys
 import tempfile
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 import zipfile
 
 IDENTITY = 'Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)'
 TEAM = 'FWJYW4S8P8'
+ALLOWED_ACTORS = ["jalehman"]
 FEED = 'https://raw.githubusercontent.com/openclaw/openclaw/main/appcast.xml'
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 
@@ -48,8 +50,25 @@ def stable_floor(xml):
 
 
 def admit(env):
-    """Refuse an input that could immediately update to the current stable app."""
-    _, version = inputs(env)
+    """Admit only approved actors, canonical branch heads and a safe build version."""
+    sha, version = inputs(env)
+    if any(env.get(key) not in ALLOWED_ACTORS
+           for key in ('GITHUB_ACTOR', 'GITHUB_TRIGGERING_ACTOR')):
+        raise ValueError('Both the original and triggering actors must be allowlisted')
+    # A commit lookup alone can resolve fork-network commits. Require a current
+    # branch head in the canonical repository, not a PR ref or merely a known SHA.
+    request = Request(
+        f'https://api.github.com/repos/openclaw/openclaw/commits/{sha}/branches-where-head',
+        headers={'Accept': 'application/vnd.github+json',
+                 'Authorization': 'Bearer ' + env['GH_TOKEN'],
+                 'X-GitHub-Api-Version': '2022-11-28'})
+    with urlopen(request, timeout=30) as response:
+        branches = json.load(response)
+    if not isinstance(branches, list) or not any(
+            isinstance(branch, dict) and isinstance(branch.get('name'), str) and branch['name']
+            and isinstance(branch.get('commit'), dict) and branch['commit'].get('sha') == sha
+            for branch in branches):
+        raise ValueError('source_sha must be a current branch head in openclaw/openclaw')
     with urlopen(FEED, timeout=30) as response:
         floor = stable_floor(response.read())
     if int(version) <= floor:
@@ -92,7 +111,6 @@ def verify_metadata(app, sha, version):
     if any(info.get(key) != value for key, value in expected.items()):
         raise ValueError('App identity, source SHA or build version does not match the request')
     # This is data-only admission: never run bundled Bun while signing keys exist.
-    import json
     runtime = app / 'Contents/Resources/runtime/lib/node_modules/openclaw/dist/build-info.json'
     data = json.loads(runtime.read_text())
     for key, plist_key in [('commit', 'OpenClawGitCommit'), ('version', 'CFBundleShortVersionString'),

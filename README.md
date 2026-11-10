@@ -76,13 +76,26 @@ release manager or Josh must approve **both this workflow's merge and each
 `mac-release` run**, including its exact source commit and build version. It is
 not dispatched by PRs or by another workflow. The existing main-only environment
 policy remains intact; it currently has no required-reviewer gate, so approval
-must precede the authorized operator's dispatch. Do not use this path for
-unreviewed contributor code.
+must precede dispatch. Both jobs enforce the trusted `ALLOWED_ACTORS = ["jalehman"]`
+list against **both** `GITHUB_ACTOR` and `GITHUB_TRIGGERING_ACTOR`; a rerun by anyone
+else is rejected. Adding an operator requires a reviewed code change. Do not use
+this path for unreviewed contributor code.
+
+Before candidate checkout and again in the signing job **before any signing secret
+is materialized**, admission calls GitHub's canonical
+`openclaw/openclaw/commits/{sha}/branches-where-head` endpoint with the workflow's
+`contents: read` token (no signing/PAT secret). The exact SHA must currently head a
+branch of `openclaw/openclaw` itself. Fork-only/PR-ref-only commits, missing heads,
+malformed responses and API failures fail closed. This deliberately accepts only
+current branch heads, not arbitrary historical ancestors: keep the reviewed
+canonical branch pinned until signing completes; an advanced/deleted branch can
+require a newly approved build. Branch membership is not a substitute for source
+review or human run approval.
 
 After that approval, choose **Actions → OpenClaw macOS Native Test Build → Run
 workflow**, branch `main`, and supply:
 
-- `source_sha`: the full, lowercase, 40-character `openclaw/openclaw` commit.
+- `source_sha`: the full, lowercase, 40-character current `openclaw/openclaw` branch-head commit.
 - `version_override`: a numeric **CFBundleVersion**, strictly greater than the
   largest `sparkle:version` in the current stable `appcast.xml`. For example, if
   the feed's largest version is `2611000190`, choose `2611000191`. The workflow

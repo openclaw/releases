@@ -19,14 +19,55 @@ build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
 WORKFLOW = (ROOT / '.github/workflows/openclaw-macos-test-build.yml').read_text()
 ENV = dict(GITHUB_REPOSITORY='openclaw/releases', GITHUB_REF='refs/heads/main',
-           GITHUB_EVENT_NAME='workflow_dispatch', SOURCE_SHA='a' * 40, VERSION_OVERRIDE='2611000191')
+           GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_ACTOR='jalehman',
+           GITHUB_TRIGGERING_ACTOR='jalehman', GH_TOKEN='fixture-read-token',
+           SOURCE_SHA='a' * 40, VERSION_OVERRIDE='2611000191')
 FEED = b'<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:version>2611000190</sparkle:version><enclosure url="https://example.invalid/app.zip" /></item><item><sparkle:version>2610001090</sparkle:version><enclosure /></item></channel></rss>'
 
 
 class TestBuildTests(unittest.TestCase):
+    def admitted_response(self, request, **kwargs):
+        if isinstance(request, str):
+            self.assertEqual(request, build.FEED)
+            return io.BytesIO(FEED)
+        self.assertEqual(request.full_url, 'https://api.github.com/repos/openclaw/openclaw/commits/'
+                         + ENV['SOURCE_SHA'] + '/branches-where-head')
+        self.assertEqual(request.get_header('Authorization'), 'Bearer fixture-read-token')
+        return io.BytesIO(json.dumps([{'name': 'reviewed-native',
+                                      'commit': {'sha': ENV['SOURCE_SHA']}}]).encode())
+
+    def test_actor_and_rerun_admission_precedes_network_access(self):
+        for update in [dict(GITHUB_ACTOR='other'), dict(GITHUB_TRIGGERING_ACTOR='other'),
+                       dict(GITHUB_ACTOR=''), dict(GITHUB_TRIGGERING_ACTOR='')]:
+            with self.subTest(update=update), patch.object(build, 'urlopen') as network:
+                with self.assertRaises(ValueError):
+                    build.admit(ENV | update)
+                network.assert_not_called()
+
+    def test_canonical_branch_head_required_before_feed_and_effects(self):
+        # Canonical branch heads exclude fork-only commits even when the commit
+        # itself is accessible through GitHub's shared repository network.
+        for label, payload in [('fork-only', []), ('unreachable', []),
+                               ('mismatched-head', [{'name': 'main', 'commit': {'sha': 'b' * 40}}]),
+                               ('malformed', {'message': 'not a branch list'})]:
+            with self.subTest(case=label), patch.object(build, 'urlopen',
+                    return_value=io.BytesIO(json.dumps(payload).encode())) as network:
+                with self.assertRaises(ValueError):
+                    build.admit(ENV)
+                self.assertEqual(network.call_count, 1)
+        from urllib.error import HTTPError
+        for code in [403, 404, 429, 500]:
+            with self.subTest(code=code), patch.object(build, 'urlopen',
+                    side_effect=HTTPError('https://api.github.com', code, 'fixture', {}, None)):
+                with self.assertRaises(HTTPError):
+                    build.admit(ENV)
+        with patch.object(build, 'urlopen', side_effect=self.admitted_response) as network:
+            build.admit(ENV)
+            self.assertEqual(network.call_count, 2)
+
     def test_inputs_and_stable_floor_fail_closed(self):
         self.assertEqual(build.stable_floor(FEED), 2611000190)
-        with patch.object(build, 'urlopen', return_value=io.BytesIO(FEED)):
+        with patch.object(build, 'urlopen', side_effect=self.admitted_response):
             build.admit(ENV)
         for update in [dict(SOURCE_SHA='main'), dict(SOURCE_SHA='a' * 39),
                        dict(SOURCE_SHA='a' * 40 + '\n'), dict(SOURCE_SHA='$(echo unsafe)'),
@@ -37,7 +78,7 @@ class TestBuildTests(unittest.TestCase):
             with self.subTest(update=update), self.assertRaises(ValueError):
                 build.inputs(ENV | update)
         for version in ['2611000190', '2611000189']:
-            with patch.object(build, 'urlopen', return_value=io.BytesIO(FEED)), self.assertRaises(ValueError):
+            with patch.object(build, 'urlopen', side_effect=self.admitted_response), self.assertRaises(ValueError):
                 build.admit(ENV | dict(VERSION_OVERRIDE=version))
         for feed in [b'<rss/>', FEED.replace(b'2611000190', b''), FEED.replace(b'2611000190', b'latest')]:
             with self.subTest(feed=feed), self.assertRaises(ValueError):
@@ -154,6 +195,13 @@ class TestBuildTests(unittest.TestCase):
         self.assertNotIn('environment: mac-release', build_job)
         self.assertIn('environment: mac-release', sign_job)
         self.assertIn('needs: build', sign_job)
+        for job in (build_job, sign_job):
+            self.assertIn('GH_TOKEN: ${{ github.token }}', job)
+            self.assertEqual(job.count('scripts/macos-test-build.py admit'), 1)
+        self.assertLess(build_job.index('scripts/macos-test-build.py admit'),
+                        build_job.index('name: Checkout exact public source'))
+        self.assertLess(sign_job.index('scripts/macos-test-build.py admit'),
+                        sign_job.index('secrets.MACOS_DEVELOPER'))
         # Failed-job reruns consume the successful producer's ID, not a new attempt name.
         self.assertIn('unsigned_artifact_id: ${{ steps.unsigned.outputs.artifact-id }}', build_job)
         self.assertIn('id: unsigned', build_job)
