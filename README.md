@@ -69,6 +69,83 @@ HTTP 404 and 5xx responses up to six times, waiting 10, 20, 30, 45, and 60 secon
 and other non-transient failures stop immediately; a successful response must
 still match the requested tag before assets can be uploaded.
 
+### Prepare a native macOS test app (not a release)
+
+`openclaw-macos-test-build.yml` is a separate, manual, artifact-only path. A
+release manager or Josh must approve **both this workflow's merge and each
+`mac-release` run**, including its exact source commit and build version. It is
+not dispatched by PRs or by another workflow. The existing main-only environment
+policy remains intact; it currently has no required-reviewer gate, so approval
+must precede the authorized operator's dispatch. Do not use this path for
+unreviewed contributor code.
+
+After that approval, choose **Actions → OpenClaw macOS Native Test Build → Run
+workflow**, branch `main`, and supply:
+
+- `source_sha`: the full, lowercase, 40-character `openclaw/openclaw` commit.
+- `version_override`: a numeric **CFBundleVersion**, strictly greater than the
+  largest `sparkle:version` in the current stable `appcast.xml`. For example, if
+  the feed's largest version is `2611000190`, choose `2611000191`. The workflow
+  checks the live feed before building and again before signing; a missing,
+  malformed or unreachable feed fails closed. Do not blindly copy this example.
+
+The override uses the product packager's existing `APP_BUILD` setting. Sparkle
+compares this build version, not `CFBundleShortVersionString`. The marketing and
+private-runtime versions stay at the source package version: overriding
+`APP_VERSION` alone would violate the packager's build-provenance check. This
+keeps the clean selected source unmodified and prevents an immediate replacement
+by the currently advertised stable app. Automatic updates remain enabled; a
+future official feed build above the override can replace the test build.
+**Restore normal updates immediately by quitting the test app and manually
+installing the saved or current official stable app at the same path.** Do not
+edit a signed app's plist or lower its build version in place.
+
+The build job executes the reviewed source **without signing credentials**. It
+regenerates the same revision's Rust bindings, rejects generated-source drift,
+builds the macOS XCFramework, and packages with `OPENCLAW_IROH_NATIVE=1`,
+`BUILD_CONFIG=release`, `BUILD_ARCHS=arm64` and `BUNDLE_ID=ai.openclaw.mac`.
+The XCFramework contains both macOS slices; the app itself is arm64 only. The
+complete private runtime and MLX helper remain required. The packager's ordinary
+build/runtime checks run, but neither the release/npm validation entrypoints nor
+the distribution packager are called. No SwiftPM or package-manager Actions cache
+is restored or saved, so this path cannot write release caches.
+
+A separate fresh runner in `mac-release` validates the archive paths, app source
+and runtime metadata, and arm64 executable. It imports only the existing
+Developer ID certificate, requiring exactly
+`Developer ID Application: OpenClaw Foundation (FWJYW4S8P8)`. Signing uses the
+product's native inventory/entitlement/signing owner pinned to
+`0409efbc343c579f3d711f723811c58fa9497f05`, **not candidate-controlled scripts**.
+It does not execute the candidate app or bundled runtime in the signing job.
+The temporary certificate/keychain are removed and the original keychain search
+list restored before upload; cleanup failure fails the job. Updating the trusted
+signer pin requires review like any other credentialed workflow change.
+
+Download `macos-native-test-<sha>-<build>-<run>-<attempt>` from that run. It contains
+`OpenClaw-native-test.zip`, `SHA256SUMS`, `source-sha.txt` and `build-version.txt`.
+Verify the zip with `shasum -a 256 -c SHA256SUMS`. This is a plain public Actions
+artifact retained for **7 days**. The ad-hoc signing-input zip is also public and
+expires after **1 day**; it is not the final installable test artifact. Failed-job
+reruns consume the successful build's immutable artifact ID, even when the run
+attempt changes. If that input has expired, rerun the full approved build rather
+than substituting another run's artifact. No signing material is uploaded. Logs and artifacts must not contain personal data or
+credentials.
+
+This workflow has no tag input and never calls the publish workflow, npm release
+checks, notarization/stapling, appcast generation or publication, GitHub Releases,
+or an npm publisher. Code signing requests an Apple secure timestamp, but never
+submits the app to Apple's notarization service. **The result is signed, not
+notarized:** Gatekeeper may block a quarantined download until the human approves
+it. Matching team, designated requirement, bundle ID and installation path is
+necessary but does not itself prove Keychain/TCC continuity. Actual app startup,
+permissions, native enrollment and cold restart remain a separate acceptance
+window with a retained app backup and independent SSH rollback.
+
+All existing release workflow and script steps remain unchanged by this path.
+Local checks are the standard Python tests plus `actionlint`; a successful local
+run does not prove the macOS build or certificate. The first real run remains
+blocked on the release manager's approval and must be verified before installing.
+
 ### Promote a validated beta to npm latest
 
 After the exact final release has passed stable/full validation, including soak
