@@ -39,6 +39,10 @@ maintenance, and durable release evidence separate from the product source repo.
   to `extended-stable`, without changing other selectors.
 - `.github/workflows/openclaw-release-evidence.yml` records manually supplied
   release proof runs.
+- `.github/workflows/windows-store-publish.yml` authorizes retained Gateway or
+  Companion MSIX bundles and submits only after release-manager environment
+  approval. Gateway supports production and its beta Development flight;
+  Companion remains production-only. See [Store publishing and administrator cutover](docs/windows-store-publishing.md).
 - `.github/workflows/openclaw-release-evidence-from-full-validation.yml` ingests
   child runs from the public `Full Release Validation` workflow.
 
