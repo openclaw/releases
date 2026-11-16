@@ -179,10 +179,10 @@ try {
         Assert-Fails { Get-Source $fixture } 'attempt'
     }
     foreach ($product in @('gateway', 'companion')) {
-        Test-Case "$product tag named main cannot impersonate protected branch history" {
+        Test-Case "$product tag named main cannot impersonate main-branch history" {
             $fixture = New-Fixture $product -Promotion
             $fixture.mainHistory = $false
-            Assert-Fails { Get-Source $fixture } 'protected main history'
+            Assert-Fails { Get-Source $fixture } 'main-branch history'
         }
     }
     Test-Case 'Gateway separately selected identity is checked' {

@@ -32,7 +32,8 @@ tags/commits, source pipeline/run/attempt, package version, artifact ID, publish
 code commit, and bundle SHA-256. Gateway's payload and independently selected
 release identity remain separate facts. Approval also binds the Store destination
 and configured flight GUID. Main-only source pipelines must belong to the actual
-protected main branch history; an unqualified run branch name is not sufficient.
+main branch history; an unqualified run branch name is not sufficient. This
+ancestry check does not establish that a commit received PR review.
 Build qualification owns MSIX composition,
 architecture, reserved-version allocation, inventory, and installed-upgrade proof;
 the publisher does not rebuild or introduce another version-allocation policy.
@@ -40,9 +41,17 @@ the publisher does not rebuild or introduce another version-allocation policy.
 Only `@openclaw/release-managers-openclaw` can approve the product's environment.
 The approved job downloads the same artifact ID and rechecks current source,
 attempt, release, hash, and protection settings before requesting an OIDC assertion.
-It executes only reviewed central scripts, never scripts downloaded from a source
-repository or artifact. The existing publisher preserves product metadata, owns
-only its created draft, and never deletes an ambiguously accepted commit.
+It executes only central scripts pinned to the workflow commit, never scripts
+downloaded from a source repository or artifact. The existing publisher preserves
+product metadata, owns only its created draft, and never deletes an ambiguously
+accepted commit.
+
+Branch rules and CODEOWNERS remain unchanged. Repository writers remain trusted
+to change publisher code; environment approval gates the credential-bearing job
+in this workflow, not changes to its implementation. This rollout neither
+requires PR-only `main` nor guarantees release-manager review of code changes.
+The existing release-evidence workflows can continue their direct pushes to
+`main`; migrating them to PRs is not a Store-publishing prerequisite.
 
 The preapproval source facts and Microsoft commit receipt are retained for 90 days.
 `CommitStarted` is commit acceptance, not certification or public availability.
@@ -106,42 +115,32 @@ identity, PAT, per-flight environment, or federation is required.
 These are required settings, not changes applied by merging the YAML. Until the
 two environments have the exact required team/main/no-bypass protection, the
 publisher fails before credential use. Repository and cloud administrators must
-complete and read back the following cutover before enabling requests.
+complete and read back the following cutover before enabling requests. No branch
+ruleset or required-CI setting changes are part of this cutover.
 
-1. Merge the [evidence-writer PR compatibility change](https://github.com/openclaw/releases/pull/47) before enforcing PR-only
-   `main`. Evidence updates must use ordinary checked PRs, not an automation bypass
-   that could edit publisher code.
-2. Correct the CODEOWNERS slug and verify team ID `16590423` has an explicit write
-   grant on all three repositories. The native packaging grant needs independent
-   verification; team members' individual access is not a substitute.
-3. Review/import `config/windows-release-authority-ruleset.json` as an
-   organization-owned ruleset and `config/windows-store-ci-ruleset.json` for this
-   repository. Reconcile an existing matching rule instead of creating duplicates.
-   The former requires PRs and release-manager review of authority paths, including
-   CODEOWNERS and the policy templates themselves. Evidence-only PRs still require
-   CI but do not require the release team. No bot or ordinary maintainer bypasses
-   these rules. Retain existing required native checks, including Node's CI Gate.
-4. Create/update both environments from `config/windows-store-environments.json`.
+1. Verify `@openclaw/release-managers-openclaw` is team ID `16590423` and has
+   access to review deployments in `openclaw/releases`.
+2. Create/update both environments from `config/windows-store-environments.json`.
    For each, create the single deployment branch policy `{ "name": "main",
    "type": "branch" }` and remove other patterns. The templates allow an initiating
    release manager to approve, matching Node's existing stable-promotion policy;
    they still permit only the named team. Set prevent-self-review if a separate
    deployment initiator/approver is desired. App-dispatched jobs do not by themselves
    prove two distinct upstream humans.
-5. Set `MSSTORE_TENANT_ID`, `MSSTORE_CLIENT_ID`, and `MSSTORE_APPLICATION_ID` as
+3. Set `MSSTORE_TENANT_ID`, `MSSTORE_CLIENT_ID`, and `MSSTORE_APPLICATION_ID` as
    variables in each corresponding environment. Preserve the existing separate
    Gateway and Companion Entra applications and Partner Center product roles.
-   Keep GitHub App `2729701` / `GH_APP_PRIVATE_KEY` available to these reviewed
+   Keep GitHub App `2729701` / `GH_APP_PRIVATE_KEY` available to these central
    workflows, with the necessary installations. Reader tokens use only Actions
    read and Contents read on core and both Windows repositories. Requesters use
-   only Actions write on `releases`; the evidence writer separately needs scoped
-   Contents/Pull Requests write here. Verify grants rather than assuming them.
-6. Reconcile/drain existing native Store runs and drafts. In the actual Store
+   only Actions write on `releases`. No additional evidence-writer App grants are
+   needed for this rollout. Verify grants rather than assuming them.
+4. Reconcile/drain existing native Store runs and drafts. In the actual Store
    tenant, replace each native writer federation with its corresponding central
    environment federation. Audit other federated writers, passwords/certificates,
    and separate manual publishing access. Avoid a parallel unapproved writer
    window; removing a federation does not recall already-issued access tokens.
-7. Read this repository's current OIDC subject configuration. With the currently
+5. Read this repository's current OIDC subject configuration. With the currently
    configured prefix `repo:openclaw/releases`, use issuer
    `https://token.actions.githubusercontent.com`, audience
    `api://AzureADTokenExchange`, and subjects:
@@ -149,7 +148,7 @@ complete and read back the following cutover before enabling requests.
    - Companion: `repo:openclaw/releases:environment:microsoft-store-companion`
    Recompute if immutable/custom subjects are enabled. Remove native repository
    trusts; deleting their YAML or variables alone does not remove cloud authority.
-8. For Gateway, land [beta support #246](https://github.com/openclaw/openclaw-windows-packaging/pull/246)
+6. For Gateway, land [beta support #246](https://github.com/openclaw/openclaw-windows-packaging/pull/246)
    and [Store flight artifacts #247](https://github.com/openclaw/openclaw-windows-packaging/pull/247)
    before the [request-only cutover #212](https://github.com/openclaw/openclaw-windows-packaging/pull/212),
    [Companion request-only cutover](https://github.com/openclaw/openclaw-windows-node/pull/1891),
@@ -165,9 +164,8 @@ complete and read back the following cutover before enabling requests.
 
 Use `gh api repos/openclaw/releases/environments/ENV` and its
 `deployment-branch-policies` endpoint to verify the exact team and main-only/no-bypass
-settings. Check effective active rulesets and
-`gh api repos/openclaw/releases/codeowners/errors?ref=main`; an existing or named
-ruleset is not proof that code review is enforced.
+environment settings. These deployment checks are independent of branch rules;
+leave the existing branch rules, CODEOWNERS, and evidence workflows unchanged.
 
 After setup, first prove an ordinary writer can queue but not approve a request,
 and that old/native identities, wrong refs, revoked source authority, and substituted

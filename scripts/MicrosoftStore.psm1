@@ -122,15 +122,15 @@ function Get-AuthorizedStoreSource {
     }
     if ($gatewayRun -or $promotionRun) {
         # Run head_branch is unqualified: a tag named main is not evidence of
-        # protected branch review. Authenticate ancestry through GitHub instead.
+        # main-branch ancestry. Authenticate ancestry, not review, through GitHub.
         $main = & $ApiInvoker $config.repository 'git/ref/heads/main'
         if ($main.object.type -cne 'commit' -or $main.object.sha -cnotmatch '^[0-9a-f]{40}$') {
-            throw 'Unable to resolve protected main history.'
+            throw 'Unable to resolve main-branch history.'
         }
         $comparison = & $ApiInvoker $config.repository "compare/$($run.head_sha)...$($main.object.sha)"
         if ($comparison.status -cnotin @('ahead', 'identical') -or
             $comparison.base_commit.sha -cne $run.head_sha -or $comparison.merge_base_commit.sha -cne $run.head_sha) {
-            throw 'Store source pipeline does not belong to protected main history.'
+            throw 'Store source pipeline does not belong to main-branch history.'
         }
     }
 
