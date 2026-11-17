@@ -127,6 +127,20 @@ jobs:
           CI: "true"
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare exact-source native test runtime
+        working-directory: source
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          set -euo pipefail
+          # Warm the project-local CLI before native requests' 60-second deadline.
+          # Reuse the source CI owner for revision verification and the PATH shim.
+          source_sha="$(git rev-parse HEAD)"
+          pnpm build:ci-artifacts
+          runtime_dir="$(mktemp -d "$RUNNER_TEMP/macos-native-runtime.XXXXXX")"
+          node scripts/macos-native-runtime-artifact.mjs pack "$runtime_dir" "$source_sha"
+          node scripts/macos-native-runtime-artifact.mjs restore "$runtime_dir" "$source_sha" >> "$GITHUB_PATH"
+
       - name: Prepare Apple Mermaid assets
         working-directory: source
         run: |
@@ -156,8 +170,14 @@ jobs:
           swift_test_args=(--package-path apps/macos --build-system native --enable-code-coverage)
           swift build "${swift_test_args[@]}" --build-tests
           swift_test_args+=(--skip-build --no-parallel)
-          node scripts/test-macos-native.mts default "${swift_test_args[@]}" --skip "AppStateIsolationTests|ProfileChatPreferencesTests"
-          node scripts/test-macos-native.mts named "${swift_test_args[@]}" --filter "AppStateIsolationTests|ProfileChatPreferencesTests"
+          # Rendered Quick Chat owns a separate default-profile process; other
+          # suites can steal key status even when tests are serial. Run every
+          # partition, then fail before producing successful validation proof.
+          status=0
+          node scripts/test-macos-native.mts default "${swift_test_args[@]}" --skip "AppStateIsolationTests|ProfileChatPreferencesTests|QuickChatCatalogPresentationTests" || status=$?
+          node scripts/test-macos-native.mts default "${swift_test_args[@]}" --filter "QuickChatCatalogPresentationTests" || status=$?
+          node scripts/test-macos-native.mts named "${swift_test_args[@]}" --filter "AppStateIsolationTests|ProfileChatPreferencesTests" || status=$?
+          exit "$status"
 
       - name: Capture validation provenance
         id: validation_provenance
@@ -190,7 +210,7 @@ jobs:
             echo "## macOS validation"
             echo
             echo "- Tag: \`${RELEASE_TAG}\`"
-            echo "- Validation: \`scripts/test-macos-native.mts\` (default and named profiles, complete serial suite)"
+            echo "- Validation: \`scripts/test-macos-native.mts\` (default, isolated rendered chat, and named profiles; complete serial suite)"
             echo "- Validation proof artifact: \`macos-validate-${RELEASE_TAG}\`"
             echo
             echo "This lane is release-blocking validation, but it does not build, sign, notarize, package, or upload release artifacts."
