@@ -29,14 +29,14 @@ function Write-Bundle($Fixture, [string]$Identity = '', [switch]$Signed, [string
     } finally { $archive.Dispose() }
 }
 
-function New-Fixture([string]$Product, [switch]$Promotion, [switch]$Beta) {
+function New-Fixture([string]$Product, [switch]$Promotion, [switch]$Beta, [switch]$Alpha) {
     $config = Get-MicrosoftStoreProduct $Product
     $directory = Join-Path $root ([guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($directory)
     $gateway = $Product -ceq 'gateway'
     $sha = 'a' * 40
     $pipeline = 'b' * 40
-    $releaseVersion = if ($Beta) { '2026.10.6-beta.2' } else { '2026.10.6' }
+    $releaseVersion = if ($Beta) { '2026.10.6-beta.2' } elseif ($Alpha) { '2026.10.6-alpha.1' } else { '2026.10.6' }
     $releaseChannel = if ($Beta) { 'beta' } else { 'stable' }
     $run = [pscustomobject]@{
         id = 41; run_attempt = 1; status = 'completed'; conclusion = 'success'
@@ -44,7 +44,7 @@ function New-Fixture([string]$Product, [switch]$Promotion, [switch]$Beta) {
         head_repository = [pscustomobject]@{ full_name = $config.repository }
         path = if ($gateway) { '.github/workflows/gateway-msix.yml' } elseif ($Promotion) { '.github/workflows/promote-alpha-release.yml' } else { '.github/workflows/ci.yml' }
         event = if ($gateway -or $Promotion) { 'workflow_dispatch' } else { 'push' }
-        head_branch = if ($gateway -or $Promotion) { 'main' } else { 'v2026.10.6' }
+        head_branch = if ($gateway -or $Promotion) { 'main' } else { "v$releaseVersion" }
         head_sha = if ($gateway -or $Promotion) { $pipeline } else { $sha }
     }
     $source = if ($gateway) {
@@ -59,10 +59,10 @@ function New-Fixture([string]$Product, [switch]$Promotion, [switch]$Beta) {
                 releaseTag = "v$releaseVersion"; packageVersion = $releaseVersion; resolvedCommit = $sha
             }
         }
-    } else { [pscustomobject]@{ runId = '41'; runAttempt = 1; releaseTag = 'v2026.10.6'; sourceSha = $sha; bundleSha256 = '' } }
+    } else { [pscustomobject]@{ runId = '41'; runAttempt = 1; releaseTag = "v$releaseVersion"; sourceSha = $sha; bundleSha256 = '' } }
     $fixture = [pscustomobject]@{
         product = $Product; directory = $directory; run = $run; source = $source; tagCommit = $sha; draft = $false; mainHistory = $true
-        channel = if ($Beta) { 'development' } else { 'production' }
+        channel = if ($Beta -or $Alpha) { 'development' } else { 'production' }
         flightId = '33333333-3333-3333-3333-333333333333'; developmentEnabled = 'true'
         packagingPublished = $true; packagingReleaseCommit = $pipeline
         bundle = Join-Path $directory $(if ($gateway) { "OpenClawGateway-$releaseVersion-msix.0-store.msixbundle" } else { 'OpenClaw.msixbundle' })
@@ -94,7 +94,7 @@ function New-Fixture([string]$Product, [switch]$Promotion, [switch]$Beta) {
         if ($Path -like 'releases/tags/*') {
             return [pscustomobject]@{
                 tag_name = $Path.Substring('releases/tags/'.Length); draft = $state.draft
-                prerelease = $Path.Contains('-beta.')
+                prerelease = $Path.Contains('-beta.') -or $Path.Contains('-alpha.')
                 published_at = if ($state.packagingPublished) { '2026-11-05T00:00:00Z' } else { $null }
             }
         }
@@ -128,6 +128,41 @@ function Get-Source($Fixture, [string]$Channel = $Fixture.channel, [bool]$Automa
 }
 
 try {
+    foreach ($channel in @('development', 'Development', 'DEVELOPMENT')) {
+        Test-Case "Companion alpha binds approved bytes to its flight: $channel" {
+            $fixture = New-Fixture companion -Alpha
+            $source = Get-Source $fixture -Channel $channel
+            $approved = Confirm-AuthorizedStoreBundle -Source $source -Directory $fixture.directory
+            if ($approved.channel -cne 'development' -or $approved.flightId -cne $fixture.flightId) { throw 'Wrong destination.' }
+            Confirm-AuthorizedStoreBundle -Source (Get-Source $fixture) -Directory $fixture.directory -ApprovedSource $approved | Out-Null
+        }
+    }
+    foreach ($scenario in @('production', 'stable', 'beta', 'promotion', 'missing flight', 'disabled', 'attempt', 'moved tag', 'draft', 'foreign', 'flight changed')) {
+        Test-Case "Companion alpha rejects $scenario" {
+            $fixture = New-Fixture companion -Alpha
+            switch ($scenario) {
+                'production' { $fixture.channel = 'production' }
+                'stable' { $fixture.run.head_branch = 'v2026.10.6' }
+                'beta' { $fixture.run.head_branch = 'v2026.10.6-beta.1' }
+                'promotion' { $fixture.run.path = '.github/workflows/promote-alpha-release.yml'; $fixture.run.event = 'workflow_dispatch'; $fixture.run.head_branch = 'main' }
+                'missing flight' { $fixture.flightId = '' }
+                'disabled' { $fixture.developmentEnabled = 'false' }
+                'attempt' { $fixture.witness.runAttempt = 2 }
+                'moved tag' { $fixture.tagCommit = 'e' * 40 }
+                'draft' { $fixture.draft = $true }
+                'foreign' { $fixture.run.repository.full_name = 'foreign/repo' }
+                'flight changed' {
+                    $approved = Confirm-AuthorizedStoreBundle -Source (Get-Source $fixture) -Directory $fixture.directory
+                    $fixture.flightId = '44444444-4444-4444-4444-444444444444'
+                }
+            }
+            if ($scenario -eq 'flight changed') {
+                Assert-Fails { Confirm-AuthorizedStoreBundle -Source (Get-Source $fixture) -Directory $fixture.directory -ApprovedSource $approved } 'changed while awaiting approval'
+            } else {
+                Assert-Fails { Get-Source $fixture -Automatic $true } 'cannot authorize|configured.*flight GUID|disabled|run and attempt|no longer matches|published release|canonical source'
+            }
+        }
+    }
     Test-Case 'Noncanonical product casing is rejected' {
         Assert-Fails { Get-MicrosoftStoreProduct 'GATEWAY' } 'ValidateSet|not belong|validation'
     }
@@ -243,9 +278,9 @@ try {
     Test-Case 'Development requires a configured Gateway flight GUID' {
         $fixture = New-Fixture gateway -Beta
         $fixture.flightId = ''
-        Assert-Fails { Get-Source $fixture } 'configured flight GUID'
+        Assert-Fails { Get-Source $fixture } 'configured.*flight GUID'
         $fixture = New-Fixture companion
-        Assert-Fails { Get-Source $fixture -Channel development } 'Gateway Development'
+        Assert-Fails { Get-Source $fixture -Channel development } 'cannot authorize'
     }
     foreach ($field in @('runAttempt', 'artifactId', 'pipelineSha', 'sourceSha')) {
         Test-Case "Changed $field while awaiting approval is rejected" {

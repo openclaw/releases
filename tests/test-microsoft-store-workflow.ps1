@@ -33,7 +33,8 @@ param([string]$Channel, [string]$FlightId, [string]$BundlePath, [string]$Package
     foreach ($case in @(
         @{ product = 'gateway'; channel = 'production'; flightId = ''; bundleName = 'OpenClawGateway-2026.11.1-msix.0-store.msixbundle'; identity = 'OpenClawFoundation.OpenClawGateway' },
         @{ product = 'gateway'; channel = 'development'; flightId = '33333333-3333-3333-3333-333333333333'; bundleName = 'OpenClawGateway-2026.11.1-beta.2-msix.0-store.msixbundle'; identity = 'OpenClawFoundation.OpenClawGateway' },
-        @{ product = 'companion'; channel = 'production'; flightId = ''; bundleName = 'OpenClaw.msixbundle'; identity = 'OpenClawFoundation.OpenClaw' }
+        @{ product = 'companion'; channel = 'production'; flightId = ''; bundleName = 'OpenClaw.msixbundle'; identity = 'OpenClawFoundation.OpenClaw' },
+        @{ product = 'companion'; channel = 'development'; flightId = 'abcdefab-3333-4444-9999-123456abcdef'; bundleName = 'OpenClaw.msixbundle'; identity = 'OpenClawFoundation.OpenClaw' }
     )) {
         $env:STORE_PRODUCT = $case.product
         $env:APPROVED_SOURCE = $case | ConvertTo-Json -Compress
@@ -49,7 +50,7 @@ param([string]$Channel, [string]$FlightId, [string]$BundlePath, [string]$Package
         }
         Remove-Item called.json
     }
-    Write-Host 'Store workflow destination handoff: 3 scenarios passed.'
+    Write-Host 'Store workflow destination handoff: 4 scenarios passed.'
 } finally {
     Set-Location $location
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $original[$name]) }
