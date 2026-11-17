@@ -27,7 +27,8 @@ env:
 jobs:
   macos_validate:
     runs-on: xcode-27
-    timeout-minutes: 60
+    # Includes cold runtime/Swift builds and all three isolated test partitions.
+    timeout-minutes: 120
     env:
       MACOSX_DEPLOYMENT_TARGET: "15.0"
     permissions:

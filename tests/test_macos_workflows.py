@@ -860,6 +860,8 @@ else:
 
     def test_complete_isolated_suite_and_failure_propagation(self):
         source = workflow('openclaw-macos-validate.yml')
+        # Cold source/runtime/Swift builds exhausted the old hour in run 44152104150.
+        self.assertIn('    timeout-minutes: 120\n', source)
         script = step_script(source, 'Swift test')
         for name in ['Swift test', 'Capture validation provenance', 'Upload validation proof artifact']:
             header = step_source(source, name).split('        run:', 1)[0]
