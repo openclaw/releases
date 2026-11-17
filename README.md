@@ -60,6 +60,14 @@ runner and its default Xcode toolchain. Intel variants cross-compile and verify
 their runtimes under Rosetta. The deployment target stays at macOS 15.0, matching
 the public source package and app metadata.
 
+Swift validation builds the selected source with `pnpm build:ci-artifacts` before
+any native test invokes the CLI. The source-owned runtime artifact helper
+verifies that build against the exact checkout SHA and prepares the CLI PATH
+shim; the project-local runtime is warm too. The suite runs in three disjoint,
+serial processes: ordinary default-profile tests, default-profile rendered Quick
+Chat tests, and named-profile tests. Every partition runs even if another fails;
+any failure prevents validation provenance and successful proof artifacts.
+
 Tagged packagers keep their existing disk-image command interface. A scoped
 adapter uses native macOS 27 folder-image creation for read-only APFS source
 snapshots and writable staging images; other image operations stay with the

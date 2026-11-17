@@ -735,21 +735,74 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                 if accepted:
                     self.assertTrue((root / 'verified').exists())
 
+    def test_native_runtime_is_built_before_tests_and_source_bound(self):
+        source = workflow('openclaw-macos-validate.yml')
+        name = 'Prepare exact-source native test runtime'
+        self.assertIn(f'      - name: {name}\n', source)
+        self.assertLess(source.index('name: Install dependencies'), source.index(f'name: {name}'))
+        self.assertLess(source.index(f'name: {name}'), source.index('name: Swift test'))
+        self.assertIn('working-directory: source', step_source(source, name))
+        for failure in ['', 'build', 'pack', 'restore']:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                stub = root / 'pnpm'
+                stub.write_text('''#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+phase = 'build' if pathlib.Path(sys.argv[0]).name == 'pnpm' else args[1]
+with open('calls', 'a') as output:
+    output.write(json.dumps(args) + '\\n')
+if phase == os.environ['FAIL_PHASE']:
+    sys.exit(23)
+if phase == 'build':
+    pathlib.Path('warm').touch()
+else:
+    assert pathlib.Path('warm').exists()
+    assert args[0] == 'scripts/macos-native-runtime-artifact.mjs'
+    assert args[3] == 'a' * 40
+    if phase == 'restore':
+        print(args[2] + '/bin')
+''')
+                stub.chmod(0o755)
+                (root / 'node').symlink_to(stub)
+                git = root / 'git'
+                git.write_text('#!/bin/sh\nprintf "%s\\n" ' + 'a' * 40 + '\n')
+                git.chmod(0o755)
+                output = root / 'path'
+                result = subprocess.run(['bash', '-c', step_script(source, name)], cwd=root,
+                                        env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                                 RUNNER_TEMP=td, GITHUB_PATH=str(output), FAIL_PHASE=failure),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 23 if failure else 0, result.stderr)
+                calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]
+                self.assertEqual(calls[0], ['build:ci-artifacts'])
+                self.assertEqual(len(calls), {'build': 1, 'pack': 2}.get(failure, 3))
+                if not failure:
+                    self.assertTrue(output.read_text().strip().endswith('/bin'))
+                else:
+                    self.assertFalse(output.exists() and output.read_text().strip())
+
     def test_complete_isolated_suite_and_failure_propagation(self):
-        script = step_script(workflow('openclaw-macos-validate.yml'), 'Swift test')
-        # A failed build, failed profile, or timed-out profile must never upload
-        # successful validation proof or proceed to later test profiles.
+        source = workflow('openclaw-macos-validate.yml')
+        script = step_script(source, 'Swift test')
+        for name in ['Swift test', 'Capture validation provenance', 'Upload validation proof artifact']:
+            header = step_source(source, name).split('        run:', 1)[0]
+            self.assertNotIn('continue-on-error:', header)
+            self.assertNotRegex(header, r'(?m)^        if:')  # Implicit success() only.
+        # Build failure blocks tests; every built partition runs despite another
+        # partition's failure/timeout, but no failure can produce validation proof.
         for failed_phase, exit_code, expected in [
-            ('', 0, ['build', 'default', 'named']),
+            ('', 0, ['build', 'default', 'rendered', 'named']),
             ('build', 1, ['build']),
-            ('default', 124, ['build', 'default']),
-            ('named', 1, ['build', 'default', 'named']),
+            ('default', 124, ['build', 'default', 'rendered', 'named']),
+            ('rendered', 1, ['build', 'default', 'rendered', 'named']),
+            ('named', 1, ['build', 'default', 'rendered', 'named']),
         ]:
             with self.subTest(failed_phase=failed_phase), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 stub = '#!/usr/bin/env python3\n' + (
                     'import json,os,sys\n'
-                    'phase="build" if sys.argv[0].endswith("swift") else sys.argv[2]\n'
+                    'phase="build" if sys.argv[0].endswith("swift") else ("rendered" if sys.argv[-1]=="QuickChatCatalogPresentationTests" else sys.argv[2])\n'
                     'with open(os.environ["CALLS"],"a") as f: f.write(json.dumps({"phase":phase,"args":sys.argv[1:]})+"\\n")\n'
                     'sys.exit(int(os.environ["FAIL_CODE"]) if phase==os.environ["FAIL_PHASE"] else 0)\n'
                 )
@@ -767,19 +820,21 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                     self.assertEqual(call['args'][0], 'scripts/test-macos-native.mts')
                     self.assertIn('--skip-build', call['args'])
                     self.assertIn('--no-parallel', call['args'])
-                if len(calls) == 3:
+                if len(calls) == 4:
                     self.assertEqual(calls[1]['args'][-2], '--skip')
                     self.assertEqual(calls[2]['args'][-2], '--filter')
+                    self.assertEqual(calls[2]['args'][1], 'default')
+                    self.assertEqual(calls[3]['args'][-2], '--filter')
                     # Launch profile is immutable: each fixture must run exactly once
                     # in the process that owns its defaults and lifecycle semantics.
                     for test, profile in [
                         ('AppStateIsolationTests/previewConstructor', 'named'),
                         ('ProfileChatPreferencesTests/testFullChatPreferencesBelongToNamedProfile', 'named'),
-                        ('QuickChatCatalogPresentationTests/testRenderedPicker', 'default'),
+                        ('QuickChatCatalogPresentationTests/testRenderedPicker', 'rendered'),
                         ('WebChatModelPickerTests/testModelPicker', 'default'),
                     ]:
                         selected = [call['phase'] for call in calls[1:]
-                                    if bool(re.search(call['args'][-1], test)) == (call['phase'] == 'named')]
+                                    if bool(re.search(call['args'][-1], test)) == (call['args'][-2] == '--filter')]
                         self.assertEqual(selected, [profile], test)
 
     def test_promotion_accepts_draft_or_public_release_with_release_token(self):
