@@ -48,9 +48,11 @@ function Assert-MicrosoftStoreEnvironment {
 
 function Assert-PublishedStoreSource {
     param([string]$Repository, [string]$Tag, [string]$Commit, [bool]$RequireSignedTag, [scriptblock]$ApiInvoker, [bool]$Prerelease = $false)
-    $pattern = if ($Prerelease) { '^v[0-9]{4}\.[0-9]+\.[0-9]+-beta\.[1-9][0-9]*$' } else { '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9]+)?$' }
+    $pattern = if ($Prerelease -and $RequireSignedTag) { '\Av[0-9]{4}\.[0-9]+\.[0-9]+-beta\.[1-9][0-9]*\z' }
+        elseif ($Prerelease) { '\Av[0-9]+\.[0-9]+\.[0-9]+-alpha\.(?:0|[1-9][0-9]*)\z' }
+        else { '\Av[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9]+)?\z' }
     if ($Tag -cnotmatch $pattern -or $Commit -cnotmatch '^[0-9a-f]{40}$') {
-        throw 'Store publication requires an exact stable or beta release tag and source commit.'
+        throw 'Store publication requires an exact release tag for the selected product and channel and source commit.'
     }
     $release = & $ApiInvoker $Repository "releases/tags/$Tag"
     if ($release.tag_name -cne $Tag -or $release.draft -ne $false -or $release.prerelease -ne $Prerelease) {
@@ -88,11 +90,11 @@ function Get-AuthorizedStoreSource {
     $flightId = ''
     if ($development) {
         if ($Automatic -and $DevelopmentEnabled -ine 'true') {
-            throw 'Automatic Gateway Development delivery is disabled. Qualify the flight manually before enabling it.'
+            throw 'Automatic Development delivery is disabled. Qualify the flight manually before enabling it.'
         }
         $parsedFlight = [guid]::Empty
-        if ($Product -cne 'gateway' -or -not [guid]::TryParse($DevelopmentFlightId, [ref]$parsedFlight) -or $parsedFlight -eq [guid]::Empty) {
-            throw 'Gateway Development publication requires the configured flight GUID.'
+        if (-not [guid]::TryParse($DevelopmentFlightId, [ref]$parsedFlight) -or $parsedFlight -eq [guid]::Empty) {
+            throw 'Development publication requires the configured product flight GUID.'
         }
         $flightId = $parsedFlight.ToString()
     }
@@ -110,10 +112,11 @@ function Get-AuthorizedStoreSource {
         throw 'Store publication requires a successful, completed run in the canonical source repository.'
     }
     $gateway = $Product -ceq 'gateway'
+    $companionTagPattern = if ($development) { '\Av[0-9]+\.[0-9]+\.[0-9]+-alpha\.(?:0|[1-9][0-9]*)\z' } else { '\Av[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9]+)?\z' }
     $tagRun = $run.path -ceq '.github/workflows/ci.yml' -and
         $run.event -cin @('push', 'workflow_dispatch') -and
-        $run.head_branch -cmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9]+)?$'
-    $promotionRun = $run.path -ceq '.github/workflows/promote-alpha-release.yml' -and
+        $run.head_branch -cmatch $companionTagPattern
+    $promotionRun = -not $development -and $run.path -ceq '.github/workflows/promote-alpha-release.yml' -and
         $run.event -ceq 'workflow_dispatch' -and $run.head_branch -ceq 'main'
     $gatewayRun = $run.path -ceq '.github/workflows/gateway-msix.yml' -and
         $run.event -ceq 'workflow_dispatch' -and $run.head_branch -ceq 'main'
@@ -213,7 +216,7 @@ function Get-AuthorizedStoreSource {
         $sourceSha = [string]$source.sourceSha
         $identityTag = $releaseTag
         $identitySha = $sourceSha
-        Assert-PublishedStoreSource $config.repository $releaseTag $sourceSha $false $ApiInvoker
+        Assert-PublishedStoreSource $config.repository $releaseTag $sourceSha $false $ApiInvoker $development
     }
     [pscustomobject][ordered]@{
         product = $Product

@@ -14,7 +14,7 @@ on:
         type: string
         required: true
       channel:
-        description: Store destination (Development is the Gateway beta flight)
+        description: Store destination (Gateway beta or Companion alpha flight)
         type: choice
         options: [production, development]
         default: production
@@ -80,8 +80,8 @@ jobs:
           SOURCE_RUN_ID: ${{ inputs.run_id }}
           STORE_CHANNEL: ${{ inputs.channel }}
           STORE_AUTOMATIC: ${{ inputs.automatic && 'true' || 'false' }}
-          DEVELOPMENT_FLIGHT_ID: ${{ vars.MSSTORE_GATEWAY_DEVELOPMENT_FLIGHT_ID }}
-          DEVELOPMENT_ENABLED: ${{ vars.MSSTORE_GATEWAY_DEVELOPMENT_ENABLED }}
+          DEVELOPMENT_FLIGHT_ID: ${{ vars[inputs.product == 'gateway' && 'MSSTORE_GATEWAY_DEVELOPMENT_FLIGHT_ID' || 'MSSTORE_COMPANION_DEVELOPMENT_FLIGHT_ID'] }}
+          DEVELOPMENT_ENABLED: ${{ vars[inputs.product == 'gateway' && 'MSSTORE_GATEWAY_DEVELOPMENT_ENABLED' || 'MSSTORE_COMPANION_DEVELOPMENT_ENABLED'] }}
         run: |
           Import-Module ./scripts/MicrosoftStore.psm1
           $source = Get-AuthorizedStoreSource -Product $env:STORE_PRODUCT -RunId $env:SOURCE_RUN_ID -Directory ./provenance `
@@ -182,8 +182,8 @@ jobs:
           APPROVED_SOURCE: ${{ needs.source.outputs.source_json }}
           STORE_CHANNEL: ${{ inputs.channel }}
           STORE_AUTOMATIC: ${{ inputs.automatic && 'true' || 'false' }}
-          DEVELOPMENT_FLIGHT_ID: ${{ vars.MSSTORE_GATEWAY_DEVELOPMENT_FLIGHT_ID }}
-          DEVELOPMENT_ENABLED: ${{ vars.MSSTORE_GATEWAY_DEVELOPMENT_ENABLED }}
+          DEVELOPMENT_FLIGHT_ID: ${{ vars[inputs.product == 'gateway' && 'MSSTORE_GATEWAY_DEVELOPMENT_FLIGHT_ID' || 'MSSTORE_COMPANION_DEVELOPMENT_FLIGHT_ID'] }}
+          DEVELOPMENT_ENABLED: ${{ vars[inputs.product == 'gateway' && 'MSSTORE_GATEWAY_DEVELOPMENT_ENABLED' || 'MSSTORE_COMPANION_DEVELOPMENT_ENABLED'] }}
         run: |
           Import-Module ./scripts/MicrosoftStore.psm1
           $approved = $env:APPROVED_SOURCE | ConvertFrom-Json

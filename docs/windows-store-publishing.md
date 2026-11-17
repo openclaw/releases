@@ -10,8 +10,9 @@ cannot approve it or use the central Store identity.
 Select an already successful canonical source run. Gateway uses a main-branch
 `gateway-msix.yml` Store-only or official build. Gateway production requires a
 stable source; Development requires an official beta build with its packaging
-GitHub prerelease already published. Companion uses a final stable
-tag's `ci.yml` run or an approved `promote-alpha-release.yml` run. Alpha, PR,
+GitHub prerelease already published. Companion production uses a final stable
+tag's `ci.yml` run or an approved `promote-alpha-release.yml` run; its Development
+flight uses a published alpha tag's successful `ci.yml` run. Cross-channel, PR,
 failed, foreign, expired, and stale-attempt sources are rejected.
 
 ```powershell
@@ -59,6 +60,27 @@ Follow that submission in Partner Center. On a failed or ambiguous upload/commit
 inspect the retained run and draft before another request; do not rebuild or
 republish npm to recover Store delivery. Requests for the same product serialize
 and do not cancel an active upload, including concurrent production/flight requests.
+
+## Companion alpha Development flight
+
+Use `product=companion -f channel=development` for a qualified published alpha.
+Configure repository variables `MSSTORE_COMPANION_DEVELOPMENT_FLIGHT_ID` and
+`MSSTORE_COMPANION_DEVELOPMENT_ENABLED` in `openclaw/releases`. Leave activation
+unset or `false` until manual qualification. The flight GUID must belong to the
+Companion product; it is never taken from the Gateway configuration or caller.
+Requests still require the protected `microsoft-store-companion` approval.
+
+The source must retain its unsigned `OpenClaw.msixbundle` and current-attempt
+`store-release-source-<attempt>` witness. Central validation binds the published
+alpha tag and commit, run, attempt, artifact and bundle hash. Stable promotions
+cannot target Development and alphas cannot target production. Native automatic
+requests additionally require `MSSTORE_DEVELOPMENT_ENABLED` in the Node repository;
+the central activation flag is independently rechecked after approval.
+
+Finish or explicitly resolve the initial portal draft, then verify certification
+and a tester's Store install/upgrade with retained data before enabling either
+automatic-request flag. Successful fixtures or request acceptance are not that
+proof. The builder retains ownership of MSIX versions and upgrade qualification.
 
 ## Gateway beta Development flight
 
