@@ -199,6 +199,18 @@ Rerunning one consumer also reruns the collector. Final aggregate artifacts are
 replaced after their completeness and provenance checks; build checkpoints remain
 immutable.
 
+For the approved `v2026.11.5` recovery, on a failed ARM64-containing
+build/package step, the workflow retains
+`macos-audit-diagnostics-<tag>-<variant>-<source-sha>-<run-id>-<attempt>` for seven
+days if the app executable exists. It contains only the unstripped `OpenClaw`
+executable, its SHA-256 and source identity, a rerun of the source-owned async
+frame audit (including its exit status), and sleep-symbol disassembly. Partial
+diagnostics remain available if collection fails. No workspace, signing keys,
+or other app resources are included. In public repositories these diagnostics
+are publicly downloadable; do not include private inputs in the capture.
+These are diagnostic bytes, never checkpoints or release artifacts, and do not
+change the original failure or satisfy validation/promotion gates.
+
 The immutable build inputs use `macos-signed-<tag><variant-suffix>-<run-id>-<attempt>`
 artifacts with the same recovery checkpoint format. Each variant records its
 actual build attempt and exact source SHA, so a later workflow attempt consumes

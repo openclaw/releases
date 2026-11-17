@@ -735,6 +735,82 @@ sys.exit(19 if os.environ['FAIL_CHECKPOINT_HASH'] == '1' else 0)
                 if accepted:
                     self.assertTrue((root / 'verified').exists())
 
+    def test_failed_arm_audit_diagnostics_are_bounded_and_not_checkpoints(self):
+        source = workflow('openclaw-macos-variant.yml')
+        capture = 'Capture failed ARM64 audit diagnostics'
+        upload = 'Upload failed ARM64 audit diagnostics'
+        self.assertIn(f'      - name: {capture}\n', source)
+        capture_step = step_source(source, capture)
+        upload_step = step_source(source, upload)
+        for guard in ["failure()", "inputs.tag == 'v2026.11.5'", "steps.package_release.outcome == 'failure'",
+                      "matrix.variant != 'x86_64'",
+                      "hashFiles('source/dist/OpenClaw.app/Contents/MacOS/OpenClaw') != ''"]:
+            self.assertIn(guard, capture_step)
+        self.assertNotIn('github.event.repository.private', capture_step + upload_step)
+        self.assertIn("steps.package_release.outcome == 'failure'", upload_step)
+        self.assertIn("steps.audit_diagnostics.outputs.dir != ''", upload_step)
+        self.assertNotIn('continue-on-error', step_source(source, PACKAGE_RELEASE_NAME))
+        self.assertIn('name: macos-audit-diagnostics-', upload_step)
+        self.assertIn('retention-days: 7', upload_step)
+        self.assertNotIn('audit_diagnostics', source.split('  notarize_and_package:', 1)[1])
+        self.assertLess(source.index('id: package_release'), source.index(f'name: {capture}'))
+        self.assertLess(source.index(f'name: {capture}'), source.index('id: recovery_checkpoint'))
+        symbol = '_$ss5ClockPsE5sleep3for9tolerance_fixture'
+        for wrong_source, disassembly_fails in [(False, False), (True, False), (False, True)]:
+            with self.subTest(wrong_source=wrong_source, disassembly_fails=disassembly_fails), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                executable = root / 'dist/OpenClaw.app/Contents/MacOS/OpenClaw'
+                executable.parent.mkdir(parents=True)
+                executable.write_bytes(b'fixture unstripped ARM64 executable')
+                (root / 'dist/private-key.p8').write_text('must not be captured')
+                scripts = root / 'apps/macos/scripts'
+                scripts.mkdir(parents=True)
+                (scripts / 'audit-async-sleep-frames.py').write_text(
+                    'import json, sys\nprint(json.dumps({"result":"unsupported", "error":"at 0x101470350"}))\nsys.exit(2)\n')
+                git = root / 'git'
+                git.write_text('#!/bin/sh\nprintf "%s\\n" ' + 'a' * 40 + '\n')
+                git.chmod(0o755)
+                xcrun = root / 'xcrun'
+                xcrun.write_text('''#!/usr/bin/env python3
+import json, os, sys
+with open('calls', 'a') as calls:
+    calls.write(json.dumps(sys.argv[1:]) + '\\n')
+if sys.argv[1] == 'nm':
+    print(os.environ['SLEEP_SYMBOL'] + '\\n' + os.environ['SLEEP_SYMBOL'] + 'TY2_\\n' + os.environ['SLEEP_SYMBOL'] + 'Tu\\n_unrelated')
+else:
+    assert sys.argv[1:5] == ['llvm-objdump', '--macho', '--arch=arm64', '--disassemble']
+    assert sys.argv[5] == '--dis-symname'
+    print(sys.argv[6] + ': fixture instructions')
+    sys.exit(17 if os.environ['FAIL_DISASSEMBLY'] == '1' else 0)
+''')
+                xcrun.chmod(0o755)
+                output = root / 'output'
+                result = subprocess.run(['bash', '-c', step_script(source, capture)], cwd=root,
+                                        env=dict(os.environ, PATH=f'{root}:{os.environ["PATH"]}',
+                                                 RUNNER_TEMP=td, GITHUB_OUTPUT=str(output),
+                                                 SOURCE_SHA=('b' if wrong_source else 'a') * 40,
+                                                 SLEEP_SYMBOL=symbol,
+                                                 FAIL_DISASSEMBLY='1' if disassembly_fails else '0'),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, not wrong_source and not disassembly_fails, result.stderr)
+                if wrong_source:
+                    self.assertFalse(output.exists())
+                    continue
+                directory = Path(output.read_text().strip().removeprefix('dir='))
+                self.assertEqual({p.name for p in directory.iterdir()},
+                                 {'OpenClaw', 'identity.json', 'audit.json', 'sleep-disassembly.txt'})
+                self.assertEqual((directory / 'OpenClaw').read_bytes(), executable.read_bytes())
+                self.assertEqual(json.loads((directory / 'identity.json').read_text()), {
+                    'sourceSha': 'a' * 40, 'executableSha256': hashlib.sha256(executable.read_bytes()).hexdigest(),
+                    'auditExitCode': 2})
+                self.assertEqual(json.loads((directory / 'audit.json').read_text())['result'], 'unsupported')
+                calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]
+                self.assertEqual(calls[0][:4], ['nm', '-arch', 'arm64', '-j'])
+                self.assertEqual([call[5] for call in calls[1:]],
+                                 [symbol] if disassembly_fails else [symbol, symbol + 'TY2_'])
+                uploaded = re.findall(r'^            .*outputs.dir }}/(.+)$', upload_step, re.M)
+                self.assertEqual(set(uploaded), {p.name for p in directory.iterdir()})
+
     def test_native_runtime_is_built_before_tests_and_source_bound(self):
         source = workflow('openclaw-macos-validate.yml')
         name = 'Prepare exact-source native test runtime'
