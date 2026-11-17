@@ -417,7 +417,11 @@ jobs:
         run: |
           set -euo pipefail
           # Failure-only diagnostics; never a resumable or publishable artifact.
-          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          # macOS Bash does not consistently apply errexit to a bare [[ ... ]].
+          if [[ "$(git rev-parse HEAD)" != "$SOURCE_SHA" ]]; then
+            echo "Diagnostic source does not match the requested commit" >&2
+            exit 1
+          fi
           diagnostics="$(mktemp -d "$RUNNER_TEMP/macos-audit-diagnostics.XXXXXX")"
           echo "dir=$diagnostics" >> "$GITHUB_OUTPUT"
           python3 - "$diagnostics" <<'PY'
