@@ -4,7 +4,7 @@
 
 Release automation and evidence ledger for OpenClaw.
 
-The source of truth stays in `openclaw/openclaw`:
+The product source of truth stays in `openclaw/openclaw`:
 
 - source code
 - git tags
@@ -14,6 +14,26 @@ The source of truth stays in `openclaw/openclaw`:
 
 This repo keeps release packaging, macOS publication support, npm dist-tag
 maintenance, and durable release evidence separate from the product source repo.
+
+## Fast-track approval service
+
+[`fast-track/`](fast-track/README.md) owns the independently deployed Google Chat
+approval service, its locked Node dependencies, and its Cloud Run/Firestore
+operations documentation. Client tooling and immutable release-approval contracts
+stay in `openclaw/openclaw`. This source move does not deploy a service, change
+Google IAM, export approval records, or authorize a release.
+
+Service checks are manual-only and are not registered with this repository's CI:
+
+```sh
+npm --prefix fast-track ci --ignore-scripts
+npm --prefix fast-track test
+```
+
+Keep credentials and production data outside Git. Repository visibility is not
+an access boundary: deployment, database writes, allowlist changes and relevant
+impersonation permissions must remain outside release-agent access before
+production use. No deployment or release workflow is added here.
 
 ## Workflows
 
@@ -252,7 +272,7 @@ recovery interfaces, or changed source commits fail without rebuilding. Discover
 builds fresh when no valid index and live checkpoint match; API failures stop
 preparation.
 
-The scripts use only Node.js built-ins and the Python standard library; no
+The existing evidence and packaging scripts use only Node.js built-ins and the Python standard library; no
 dependency installation or build step is needed. Run local checks with Node.js 24
 and Python 3:
 
@@ -397,6 +417,8 @@ gh workflow run openclaw-release-evidence-from-full-validation.yml \
 ```
 
 ## Storage Policy
+
+This policy governs evidence payloads, not checked-in automation/service source.
 
 Store only release summaries, normalized run metadata, artifact metadata, timing
 summaries, package specs, and short release-manager notes here.
