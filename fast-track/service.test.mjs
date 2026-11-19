@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { test } from "node:test";
-import { createHandler, googleVerifier } from "./server.mjs";
+import { createHandler, FirestoreStore, googleVerifier } from "./server.mjs";
 import { approvalCard, handleChat, parseRequest, settleDecision } from "./service.mjs";
 
 const now = Date.parse("2026-11-16T12:00:00Z");
@@ -341,15 +341,15 @@ await test("a stale approver DM does not prevent notification of the other appro
     verify: async () => {},
     store: {
       enrollments: async () => [
-        { userId: "users/111", space: "spaces/STALE" },
-        { userId: "users/222", space: "spaces/ACTIVE" },
+        { email: "vincent@openclaw.org", userId: "users/111", space: "spaces/STALE" },
+        { email: "dallin@openclaw.org", userId: "users/222", space: "spaces/ACTIVE" },
       ],
       create: async (value) => value,
     },
     notify: async (space) => {
       attempts.push(space);
       if (space === "spaces/STALE") {
-        throw new Error("App removed.");
+        throw Object.assign(new Error("provider-secret"), { response: { status: 404 } });
       }
     },
   });
@@ -369,7 +369,13 @@ await test("a stale approver DM does not prevent notification of the other appro
       }),
     }),
   });
-  assert.equal(response.status, 400);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.state, "pending");
+  assert.deepEqual(result.delivery, {
+    delivered: 1,
+    failed: [{ approverEmail: "vincent@openclaw.org", recovery: "reenroll" }],
+  });
   assert.deepEqual(new Set(attempts), new Set(["spaces/ACTIVE", "spaces/STALE"]));
 });
 
@@ -453,4 +459,48 @@ await test("successful button callbacks replace the original actionable card, no
   assert.equal(action.createMessageAction, undefined);
   assert.match(action.updateMessageAction.message.text, /: rejected\./u);
   assert.match(action.updateMessageAction.message.cardsV2[0].card.header.title, /^REJECTED:/u);
+});
+
+await test("HTTP errors distinguish permanent request rejection from retryable delivery", async (t) => {
+  const existing = request();
+  const store = new FirestoreStore({
+    collection: () => ({ doc: () => ({}) }),
+    runTransaction: async (callback) => callback({ get: async () => ({ data: () => existing }) }),
+  });
+  store.enrollments = async () => [
+    { email: "dallin@openclaw.org", userId: "users/1234", space: "spaces/DM123" },
+  ];
+  const handler = createHandler({
+    store,
+    verify: async () => {},
+    notify: async () => {
+      throw new Error("provider-secret");
+    },
+    baseUrl: "https://approval.example",
+    requesters: ["machine"],
+    readers: [],
+  });
+  const server = createServer((req, res) => {
+    void handler(req, res);
+  }).listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => server.close());
+  const submit = (payload) =>
+    fetch(`http://127.0.0.1:${server.address().port}/requests`, {
+      method: "POST",
+      body: JSON.stringify({ payload: JSON.stringify(payload) }),
+    });
+  const expired = await submit(payload);
+  assert.equal(expired.status, 410);
+  assert.equal((await expired.json()).code, "REQUEST_EXPIRED");
+  const fresh = { ...payload, expiresAt: new Date(Date.now() + 3600000).toISOString() };
+  const conflict = await submit(fresh);
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).code, "REQUEST_ID_CONFLICT");
+  store.create = async (value) => value;
+  const failed = await submit(fresh);
+  assert.equal(failed.status, 503);
+  const text = await failed.text();
+  assert.equal(JSON.parse(text).code, "DELIVERY_FAILED");
+  assert.ok(!text.includes("provider-secret"));
 });

@@ -167,3 +167,29 @@ approve even though that identity may invoke the service.
 - https://cloud.google.com/firestore/pricing
 
 - https://developers.google.com/workspace/add-ons/reference/rest/v1/projects.chatAppConfig
+
+## Delivery and error recovery
+
+POST `/requests` succeeds if at least one enrolled approver receives a usable card.
+Its optional `delivery` projection reports `delivered` and `failed` entries with
+`approverEmail` and `recovery` (`reenroll` for Google 403/404, otherwise `retry`).
+This is current-attempt metadata, not persisted approval evidence or GET status.
+The named approver can re-add the app in their private DM and check app access;
+enrollment preserves the pinned stable Google user ID. Retrying unchanged,
+still-valid bytes is safe through deterministic Chat message IDs. First-decision
+semantics and callback authentication are unchanged.
+
+Errors expose fixed `code` and `error` fields, never provider error text:
+
+| HTTP | Code                                | Recovery                                                                                      |
+| ---- | ----------------------------------- | --------------------------------------------------------------------------------------------- |
+| 410  | `REQUEST_EXPIRED`                   | New request ID and fresh expiry.                                                              |
+| 409  | `REQUEST_ID_CONFLICT`               | New request ID for changed contents.                                                          |
+| 400  | `INVALID_REQUEST`, `INVALID_EXPIRY` | Correct request; new ID for changed contents.                                                 |
+| 413  | `REQUEST_TOO_LARGE`                 | Shorten details; new ID.                                                                      |
+| 409  | `NO_APPROVERS`                      | Enroll an allowed approver in a private DM; retry still-valid bytes.                          |
+| 503  | `DELIVERY_FAILED`                   | Request saved, no cards delivered. Repair DM/access, inspect status, retry still-valid bytes. |
+| 503  | `TEMPORARY_FAILURE`                 | Inspect status and repair service access before retrying unchanged, still-valid bytes.        |
+
+Deployment of these changes is separate from merging source. Local HTTP regressions
+do not establish current live-service or mobile behavior.

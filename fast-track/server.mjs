@@ -2,7 +2,14 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { Firestore } from "@google-cloud/firestore";
 import { GoogleAuth, OAuth2Client } from "google-auth-library";
-import { APPROVERS, approvalCard, handleChat, parseRequest, settleDecision } from "./service.mjs";
+import {
+  APPROVERS,
+  ApprovalRequestError,
+  approvalCard,
+  handleChat,
+  parseRequest,
+  settleDecision,
+} from "./service.mjs";
 
 export class FirestoreStore {
   constructor(db) {
@@ -32,7 +39,11 @@ export class FirestoreStore {
       const ref = this.request(request.requestId);
       const existing = (await tx.get(ref)).data();
       if (existing && existing.digest !== request.digest) {
-        throw new Error("Request ID already binds different contents.");
+        throw new ApprovalRequestError(
+          "REQUEST_ID_CONFLICT",
+          409,
+          "Request ID already binds different contents. Create a new request ID for changed contents.",
+        );
       }
       if (!existing) {
         tx.create(ref, request);
@@ -127,7 +138,11 @@ export function createHandler({
         for await (const chunk of req) {
           bytes += chunk.length;
           if (bytes > 64000) {
-            throw new Error("Request too large.");
+            throw new ApprovalRequestError(
+              "REQUEST_TOO_LARGE",
+              413,
+              "Request too large. Shorten the contents and create a new request ID.",
+            );
           }
           chunks.push(chunk);
         }
@@ -149,23 +164,21 @@ export function createHandler({
               0,
             ) > 99
           ) {
-            res
-              .writeHead(413)
-              .end(
-                '{"error":"Rendered approval card exceeds Google Chat message limit. Shorten request details."}',
-              );
-            return;
+            throw new ApprovalRequestError(
+              "REQUEST_TOO_LARGE",
+              413,
+              "Rendered approval card exceeds Google Chat message limit. Shorten request details and create a new request ID.",
+            );
           }
           const enrollments = (await store.enrollments()).filter(
             (entry) => entry.userId && entry.space,
           );
           if (enrollments.length === 0) {
-            res
-              .writeHead(409)
-              .end(
-                '{"error":"No designated approver has enrolled. Add the app in a private Google Chat DM first."}',
-              );
-            return;
+            throw new ApprovalRequestError(
+              "NO_APPROVERS",
+              409,
+              "No designated approver has enrolled. Add the app in a private Google Chat DM, then retry the same still-valid immutable request.",
+            );
           }
           result = await store.create(request);
           // Deterministic message IDs make retry after partial delivery safe without a queue.
@@ -173,9 +186,26 @@ export function createHandler({
             const deliveries = await Promise.allSettled(
               enrollments.map((enrollment) => notify(enrollment.space, request)),
             );
-            if (deliveries.some((delivery) => delivery.status === "rejected")) {
-              throw new Error("Some approval notifications could not be delivered.");
+            const failed = deliveries.flatMap((delivery, index) => {
+              if (delivery.status === "fulfilled") return [];
+              const status = delivery.reason?.response?.status;
+              return [
+                {
+                  approverEmail: enrollments[index].email,
+                  recovery: status === 403 || status === 404 ? "reenroll" : "retry",
+                },
+              ];
+            });
+            const delivered = deliveries.length - failed.length;
+            if (delivered === 0) {
+              throw new ApprovalRequestError(
+                "DELIVERY_FAILED",
+                503,
+                "Request saved, but no notification delivered. Restore approver DM membership or service access, inspect status, then retry the same still-valid immutable request.",
+              );
             }
+            // Delivery is a current-attempt projection, never a stored approval decision.
+            result = { ...result, delivery: { delivered, failed } };
           }
         }
       } else {
@@ -186,13 +216,20 @@ export function createHandler({
         }
       }
       res.end(JSON.stringify(result));
-    } catch {
-      // Never log payloads, tokens, Google error responses, or user content.
-      res
-        .writeHead(400)
-        .end(
-          '{"error":"Request refused or delivery incomplete. Retry the same immutable request."}',
-        );
+    } catch (error) {
+      // Never expose payloads, tokens, Google error responses, or user content.
+      const known = error instanceof ApprovalRequestError;
+      const malformed = error instanceof SyntaxError || error instanceof TypeError;
+      res.writeHead(known ? error.status : malformed ? 400 : 503).end(
+        JSON.stringify({
+          code: known ? error.code : malformed ? "INVALID_REQUEST" : "TEMPORARY_FAILURE",
+          error: known
+            ? error.message
+            : malformed
+              ? "Invalid request. Correct the contents and use a new request ID if changed."
+              : "Service operation failed. Inspect status and repair service access before retrying the same still-valid immutable request.",
+        }),
+      );
     }
   };
 }

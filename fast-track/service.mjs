@@ -5,9 +5,21 @@ export const APPROVERS = ["vincent@openclaw.org", "dallin@openclaw.org"];
 const escape = (text) =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
+export class ApprovalRequestError extends Error {
+  constructor(code, status, message) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
+}
+
 export function parseRequest(value, now) {
   if (!value || typeof value.payload !== "string" || Buffer.byteLength(value.payload) > 12000) {
-    throw new Error("A compact JSON payload of at most 12000 bytes is required.");
+    throw new ApprovalRequestError(
+      "INVALID_REQUEST",
+      400,
+      "A compact JSON payload of at most 12000 bytes is required.",
+    );
   }
   const payload = JSON.parse(value.payload);
   if (
@@ -20,11 +32,26 @@ export function parseRequest(value, now) {
     payload.action.length > 120 ||
     typeof payload.expiresAt !== "string"
   ) {
-    throw new Error("Invalid immutable request.");
+    throw new ApprovalRequestError(
+      "INVALID_REQUEST",
+      400,
+      "Invalid immutable request. Correct the contents and use a new request ID.",
+    );
   }
   const expiry = Date.parse(payload.expiresAt);
-  if (!Number.isFinite(expiry) || expiry <= now || expiry > now + 24 * 60 * 60 * 1000) {
-    throw new Error("Request must expire within 24 hours.");
+  if (expiry <= now) {
+    throw new ApprovalRequestError(
+      "REQUEST_EXPIRED",
+      410,
+      "Request expired. Create a new request ID with a fresh expiry.",
+    );
+  }
+  if (!Number.isFinite(expiry) || expiry > now + 24 * 60 * 60 * 1000) {
+    throw new ApprovalRequestError(
+      "INVALID_EXPIRY",
+      400,
+      "Use a new request ID with an expiry within 24 hours.",
+    );
   }
   return {
     requestId: payload.requestId,
