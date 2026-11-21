@@ -52,7 +52,8 @@ fi
 }
 release_key="$(printf '%s' "$RELEASE_ID" | git hash-object --stdin)"
 branch_prefix="automation/release-evidence/${release_key}-"
-branch="${branch_prefix}${expected_tree}-$(git rev-parse origin/main)"
+publication_base="$(git rev-parse origin/main)"
+branch="${branch_prefix}${expected_tree}-${publication_base}"
 repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 # A new generation must not abandon a pending or closed-unmerged predecessor.
 # Including the base commit permits A -> B -> A after each prior PR has merged.
@@ -90,6 +91,10 @@ while IFS= read -r changed_path; do
     exit 1
   }
 done < <(git diff --no-renames --name-only "origin/main...$remote_head")
+[[ "$(git show -s --format=%P "$remote_head")" == "$publication_base" ]] || {
+  echo "::error::Evidence candidate must have one parent at current main; regenerate."
+  exit 1
+}
 if [[ "$lookup_status" == 2 ]]; then
   # The empty lease admits creation only; it cannot overwrite an existing branch.
   git push --force-with-lease="refs/heads/$branch:" origin "HEAD:refs/heads/$branch"
@@ -100,6 +105,7 @@ find_pr() {
     --jq "[.[] | select(.isCrossRepository == false and .headRefOid == \"$remote_head\")] | .[0].number // empty"
 }
 candidate_url="https://github.com/$repo/compare/main...$branch?expand=1"
+echo "Evidence candidate: $candidate_url"
 pr_number="$(find_pr)"
 if [[ -z "$pr_number" ]]; then
   pr_body="$(mktemp)"
@@ -117,6 +123,10 @@ fi
   echo "::error::No evidence PR confirmed; inspect $candidate_url before retrying."
   exit 1
 }
+echo "Evidence PR: https://github.com/$repo/pull/$pr_number"
+# Attest before waiting: a required status starts out missing and blocks readiness.
+# Missing or bypassable policy retains this PR instead of auto-merging it.
+node scripts/publication-source.mjs --publisher "$pr_number" "$remote_head"
 
 merge_requested=0
 merged_sha=""
@@ -135,6 +145,7 @@ for attempt in {1..30}; do
       echo "::error::Remote evidence directory changed; regenerate from current main."
       exit 1
     }
+    # Strict server-side checks close the race after the last client read.
     merge_requested=1
     if ! gh pr merge "$pr_number" --squash --match-head-commit "$remote_head"; then
       echo "Merge request did not confirm success; checking the actual PR outcome."
@@ -150,6 +161,10 @@ done
 # A successful request or queued merge is not a publication receipt.
 git fetch origin main "$merged_sha"
 git merge-base --is-ancestor "$merged_sha" origin/main
+[[ "$(git show -s --format=%P "$merged_sha")" == "$publication_base" ]] || {
+  echo "::error::Squash merge parent differs from the validated publication base."
+  exit 1
+}
 if [[ "$(git rev-parse "${merged_sha}:${evidence_path}")" != "$expected_tree" ||
       "$(git rev-parse "origin/main:${evidence_path}")" != "$expected_tree" ]]; then
   echo "::error::Merged evidence directory differs from the generated files."

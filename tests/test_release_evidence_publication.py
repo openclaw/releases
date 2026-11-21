@@ -36,7 +36,45 @@ def save(state):
     history_file.write_text(json.dumps(history))
 
 operation = sys.argv[1:3]
-if operation == ['pr', 'list']:
+if sys.argv[1] == 'api':
+    path = sys.argv[2]
+    if path == 'apps/github-actions':
+        response = {'id': 15368}
+    elif '/rules/branches/main' in path:
+        response = [] if scenario == 'missing-gate' else [
+            {'type': 'non_fast_forward', 'ruleset_id': 1},
+            {'type': 'required_status_checks', 'ruleset_id': 1, 'parameters': {
+                'strict_required_status_checks_policy': True,
+                'required_status_checks': [{'context': 'Publication merge admission', 'integration_id': 15368}]}}]
+    elif '/rulesets/1?' in path:
+        response = {'enforcement': 'active', 'bypass_actors': [{'actor_id': 1}] if scenario == 'bypass-gate' else []}
+    elif '/pulls/' in path:
+        state = json.loads(state_file.read_text())
+        response = {'state': state['state'].lower(), 'head': {'sha': state['head'], 'ref': branch, 'repo': {'full_name': 'example/releases'}},
+                    'base': {'sha': git(remote, 'rev-parse', 'main'), 'ref': 'main', 'repo': {'full_name': 'example/releases'}}}
+    elif path.endswith('/git/ref/heads/main'):
+        response = {'object': {'sha': git(remote, 'rev-parse', 'main')}}
+    elif '/git/commits/' in path:
+        sha = path.rsplit('/', 1)[1]
+        response = {'sha': sha, 'tree': {'sha': git(remote, 'rev-parse', sha + '^{tree}')},
+                    'parents': [{'sha': parent} for parent in git(remote, 'show', '-s', '--format=%P', sha).split()]}
+    elif '/git/trees/' in path:
+        sha = path.rsplit('/', 1)[1].split('?')[0]
+        entries = []
+        for line in git(remote, 'ls-tree', '-r', '-t', sha).splitlines():
+            metadata, name = line.split('\\t', 1)
+            mode, kind, oid = metadata.split()
+            entries.append({'mode': mode, 'type': kind, 'sha': oid, 'path': name})
+        response = {'truncated': False, 'tree': entries}
+    elif '/statuses/' in path:
+        fields = dict(arg.split('=', 1) for arg in sys.argv[3:] if '=' in arg)
+        fields['sha'] = path.rsplit('/', 1)[1]
+        (root / 'status.json').write_text(json.dumps(fields))
+        response = fields
+    else:
+        raise AssertionError(path)
+    print(json.dumps(response))
+elif operation == ['pr', 'list']:
     requested = sys.argv[sys.argv.index('--head') + 1]
     history = json.loads(history_file.read_text()) if history_file.exists() else {}
     state = history.get(requested)
@@ -59,7 +97,8 @@ elif operation == ['pr', 'create']:
 elif operation == ['pr', 'view']:
     state = json.loads(state_file.read_text())
     head = '0' * 40 if scenario == 'moved-head' else state['head']
-    status = 'BLOCKED' if scenario == 'pending' else 'CLEAN'
+    attested = (root / 'status.json').exists() and json.loads((root / 'status.json').read_text())['state'] == 'success'
+    status = 'BLOCKED' if scenario == 'pending' or not attested else 'CLEAN'
     print('\\t'.join([head, 'CLOSED' if scenario == 'closed-pr' else state['state'], status, state['merged']]))
 elif operation == ['pr', 'merge']:
     state = json.loads(state_file.read_text())
@@ -70,6 +109,16 @@ elif operation == ['pr', 'merge']:
     git(merger, 'fetch', 'origin', 'main', branch)
     git(merger, 'checkout', 'main')
     git(merger, 'reset', '--hard', 'origin/main')
+    if scenario == 'merge-base-race':
+        (merger / evidence_path / 'concurrent.json').write_text('{}')
+        git(merger, 'add', '.')
+        git(merger, 'commit', '-m', 'Concurrent addition after final client check')
+        git(merger, 'push', 'origin', 'HEAD:main')
+    status = json.loads((root / 'status.json').read_text())
+    assert status['sha'] == state['head'] and status['context'] == 'Publication merge admission' and status['state'] == 'success'
+    # Emulate the server's strict required-status up-to-date admission.
+    if git(remote, 'show', '-s', '--format=%P', state['head']) != git(remote, 'rev-parse', 'main'):
+        sys.exit(1)
     git(merger, 'merge', '--squash', state['head'])
     if scenario == 'wrong-merged-tree':
         (merger / evidence_path / 'extra.json').write_text('{}')
@@ -138,7 +187,7 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                                    'uncertain-merge', 'create-failed', 'merge-failed', 'wrong-merged-tree',
                                    'existing-branch', 'divergent-branch', 'unrelated-branch', 'closed-pr',
                                    'repeat-release', 'return-to-prior-payload', 'pending-generation',
-                                   'unusual-release-id', 'fetch-race'))
+                                   'unusual-release-id', 'fetch-race', 'missing-gate', 'bypass-gate', 'merge-base-race'))
 
     def test_cross_directory_rename_retains_other_release_evidence(self):
         self.exercise_publication(('cross-directory-rename',))
@@ -213,8 +262,10 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                         git(other, 'commit', '-m', 'Prior pending generation')
                         git(other, 'push', 'origin', f'HEAD:{prior_branch}')
                     before = git(remote, 'rev-parse', 'main')
-                    # Production invokes the shared script relative to the checkout.
-                    (worker / 'scripts').symlink_to(ROOT / 'scripts', target_is_directory=True)
+                    # Use real entrypoint paths: Node resolves symlinks before its CLI guard.
+                    (worker / 'scripts').mkdir()
+                    for script in ('publish-release-evidence.sh', 'publication-source.mjs'):
+                        shutil.copy2(ROOT / 'scripts' / script, worker / 'scripts' / script)
                     binary = root / 'bin'
                     binary.mkdir()
                     (binary / 'gh').write_text(GH_FIXTURE)
@@ -255,6 +306,10 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                             self.assertEqual(git(remote, 'show', f'main:{evidence_path}/late.json'), '{}')
                             self.assertFalse((root / 'pr.json').exists())
                             self.assertIn('Remote evidence directory changed', result.stdout)
+                        elif scenario == 'merge-base-race':
+                            self.assertEqual(git(remote, 'show', f'main:{evidence_path}/concurrent.json'), '{}')
+                            self.assertEqual(git(remote, 'show', f'main:{evidence_path}/release-evidence.json'), '{"generation":1}')
+                            self.assertEqual(json.loads((root / 'pr.json').read_text())['state'], 'OPEN')
                         else:
                             self.assertEqual(git(remote, 'rev-parse', 'main'), before)
                         if scenario in ('same-directory', 'stale-noop'):
