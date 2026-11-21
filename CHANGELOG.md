@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Publish release evidence through pull requests, retaining unmerged candidates and verifying the exact evidence directory at the squash merge before reporting publication. Require strict server-side source freshness with a trusted metadata-only validator before automatic merging.
+
 - Retry transient exact-tag GitHub release lookups before macOS promotion, with six attempts and immediate failure for authentication or other non-transient responses. Thanks @RomneyDa.
 
 - Install the separate Metal compiler component when missing on Xcode 27 runners, retaining full MLX voice-helper builds.

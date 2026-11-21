@@ -45,6 +45,8 @@ jobs:
     permissions:
       actions: read
       contents: write
+      pull-requests: write
+      statuses: write
     steps:
       - name: Checkout release repo
         uses: actions/checkout@v7
@@ -91,4 +93,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Commit evidence to main
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/publish-release-evidence.sh

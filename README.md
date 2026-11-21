@@ -333,14 +333,46 @@ Evidence records do not store raw logs, provider payloads, live-channel
 transcripts, signing material, credentials, environment dumps, or downloaded
 release artifacts.
 
-Both evidence workflows publish with checkout-managed ephemeral `GITHUB_TOKEN`
-credentials and `contents:write`; they do not require a persistent push PAT.
-Both writers run from `main`, share a per-release concurrency group, and verify
-that the complete generated evidence directory is byte-identical on `origin/main`.
+Both evidence workflows publish through pull requests with the existing ephemeral
+`GITHUB_TOKEN` and `contents:write`, `pull-requests:write`, and `statuses:write`
+permissions. They do not
+require a persistent push PAT. Both writers run from `main`, share a per-release
+concurrency group, and use
+`automation/release-evidence/<release-key>-<evidence-tree>-<base-commit>` branches.
+The release key hashes the release ID. Each payload and base gets an immutable
+candidate; returning to a previously published payload creates a fresh PR.
+A retry reuses a pending branch only when its complete evidence directory matches;
+another pending or closed-unmerged generation requires maintainer inspection
+before publishing more evidence for that release.
+Publication requires a normal squash merge of the exact PR head and verifies the
+complete evidence directory at the actual merge commit and fresh `origin/main`.
+Before requesting a merge, the publisher requires an active, non-bypassable
+ruleset with the strict `Publication merge admission` status check bound to GitHub
+Actions, plus the non-fast-forward rule. An administrator must activate and verify
+these rules with empty bypass lists. Runtime checks reject exposed bypasses;
+GitHub may redact those lists from the workflow token, so their absence is not
+runtime proof of the administrator-owned condition. Missing or unreadable
+effective rules retain the PR and stop publication.
+The publisher validates the candidate's single parent,
+release directory, and branch identity before posting that status on its exact
+head. Strict server-side admission prevents a later main update from silently
+entering the merge; the actual squash parent is also verified afterward.
+
+`.github/workflows/publication-source.yml` posts the neutral admission status only
+for a current open PR targeting this repository's main branch at the event head.
+It checks out only its trusted workflow revision, never executes PR code, and
+writes no status for obsolete events. Payload, branch, and provenance validation
+remain with the publisher, which also posts admission after its checks. The
+whole `automation/release-evidence/` prefix is reserved for its generated
+candidates. This workflow and the required ruleset must be active before
+automatic evidence publication can complete.
+
+Blocked or unconfirmed merges leave the PR and branch available and fail visibly.
 Unrelated concurrent commits can be rebased; changes within the same evidence
 directory fail with a request to regenerate from current main. Even an unchanged
 local record is checked against fresh remote state before reporting success.
-Evidence commits do not trigger push-triggered Actions workflows. Auth repair
+Generated PR workflows may require approval; publication respects the repository's
+effective merge rules. Evidence commits do not trigger push-triggered Actions workflows. Auth repair
 verification must use a new, clearly labeled verification record because
 regenerating an existing release ID overwrites its stored evidence.
 
