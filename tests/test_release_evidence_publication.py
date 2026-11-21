@@ -133,13 +133,19 @@ def publication_step(name):
 
 class ReleaseEvidencePublicationTests(unittest.TestCase):
     def test_remote_publication_and_concurrent_updates(self):
+        self.exercise_publication(('publish', 'noop', 'unrelated', 'same-directory', 'stale-noop',
+                                   'conflict', 'missing', 'pending', 'moved-head', 'uncertain-create',
+                                   'uncertain-merge', 'create-failed', 'merge-failed', 'wrong-merged-tree',
+                                   'existing-branch', 'divergent-branch', 'unrelated-branch', 'closed-pr',
+                                   'repeat-release', 'return-to-prior-payload', 'pending-generation',
+                                   'unusual-release-id', 'fetch-race'))
+
+    def test_cross_directory_rename_retains_other_release_evidence(self):
+        self.exercise_publication(('cross-directory-rename',))
+
+    def exercise_publication(self, scenarios):
         for workflow in WORKFLOWS:
-            for scenario in ('publish', 'noop', 'unrelated', 'same-directory', 'stale-noop',
-                             'conflict', 'missing', 'pending', 'moved-head', 'uncertain-create',
-                             'uncertain-merge', 'create-failed', 'merge-failed', 'wrong-merged-tree',
-                             'existing-branch', 'divergent-branch', 'unrelated-branch', 'closed-pr',
-                             'repeat-release', 'return-to-prior-payload', 'pending-generation',
-                             'unusual-release-id', 'fetch-race'):
+            for scenario in scenarios:
                 with self.subTest(workflow=workflow, scenario=scenario), tempfile.TemporaryDirectory() as td:
                     root = Path(td)
                     remote, worker, other = (root / name for name in ('remote.git', 'worker', 'other'))
@@ -153,6 +159,9 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                     evidence = worker / evidence_path
                     evidence.mkdir(parents=True)
                     (evidence / 'release-evidence.json').write_text('{"generation":1}\n')
+                    if scenario == 'cross-directory-rename':
+                        (worker / 'evidence/prior').mkdir()
+                        (worker / 'evidence/prior/proof.json').write_text('{"prior":"retained"}\n')
                     git(worker, 'add', '.')
                     git(worker, 'commit', '-m', 'initial')
                     git(worker, 'push', 'origin', 'HEAD:main')
@@ -165,6 +174,8 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                         (evidence / 'release-evidence.json').write_text('{"generation":2}\n')
                     if scenario == 'missing':
                         (evidence / 'release-evidence.json').unlink()
+                    if scenario == 'cross-directory-rename':
+                        (evidence / 'moved.json').write_text('{"prior":"retained"}\n')
                     remote_change = {
                         'unrelated': 'unrelated.txt',
                         'same-directory': f'{evidence_path}/other.json',
@@ -178,13 +189,19 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                         git(other, 'push', 'origin', 'HEAD:main')
                     branch = branch_for(worker, release_id) if scenario != 'missing' else 'unused'
                     existing_head = None
-                    if scenario in ('existing-branch', 'divergent-branch', 'unrelated-branch', 'closed-pr'):
+                    if scenario in ('existing-branch', 'divergent-branch', 'unrelated-branch', 'closed-pr', 'cross-directory-rename'):
                         (other / evidence_path / 'release-evidence.json').write_text(
                             '{"generation":9}\n' if scenario == 'divergent-branch' else '{"generation":2}\n')
                         if scenario == 'unrelated-branch':
                             (other / 'unrelated.txt').write_text('foreign branch content')
+                        if scenario == 'cross-directory-rename':
+                            (other / 'evidence/prior/proof.json').rename(other / evidence_path / 'moved.json')
                         git(other, 'add', '.')
                         git(other, 'commit', '-m', 'Pending evidence')
+                        if scenario == 'cross-directory-rename':
+                            renamed = git(other, 'diff', '--find-renames', '--name-only', 'origin/main...HEAD')
+                            self.assertNotIn('evidence/prior/proof.json', renamed)
+                            self.assertIn(f'{evidence_path}/moved.json', renamed)
                         existing_head = git(other, 'rev-parse', 'HEAD')
                         git(other, 'push', 'origin', f'HEAD:{branch}')
                         if scenario == 'closed-pr':
@@ -242,6 +259,10 @@ class ReleaseEvidencePublicationTests(unittest.TestCase):
                             self.assertEqual(git(remote, 'rev-parse', 'main'), before)
                         if scenario in ('same-directory', 'stale-noop'):
                             self.assertIn('evidence directory', result.stdout)
+                        if scenario == 'cross-directory-rename':
+                            self.assertIn('outside', result.stdout)
+                            self.assertEqual(git(remote, 'show', 'main:evidence/prior/proof.json'),
+                                             '{"prior":"retained"}')
                         if scenario in ('pending', 'moved-head', 'create-failed', 'merge-failed'):
                             self.assertTrue(git(remote, 'rev-parse', branch))
                         if scenario in ('pending', 'closed-pr', 'create-failed', 'merge-failed'):

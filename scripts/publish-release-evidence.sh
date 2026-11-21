@@ -89,7 +89,7 @@ while IFS= read -r changed_path; do
     echo "::error::Evidence branch changes a path outside ${evidence_path}."
     exit 1
   }
-done < <(git diff --name-only "origin/main...$remote_head")
+done < <(git diff --no-renames --name-only "origin/main...$remote_head")
 if [[ "$lookup_status" == 2 ]]; then
   # The empty lease admits creation only; it cannot overwrite an existing branch.
   git push --force-with-lease="refs/heads/$branch:" origin "HEAD:refs/heads/$branch"
