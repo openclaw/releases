@@ -333,14 +333,24 @@ Evidence records do not store raw logs, provider payloads, live-channel
 transcripts, signing material, credentials, environment dumps, or downloaded
 release artifacts.
 
-Both evidence workflows publish with checkout-managed ephemeral `GITHUB_TOKEN`
-credentials and `contents:write`; they do not require a persistent push PAT.
-Both writers run from `main`, share a per-release concurrency group, and verify
-that the complete generated evidence directory is byte-identical on `origin/main`.
+Both evidence workflows publish through pull requests with the existing ephemeral
+`GITHUB_TOKEN` and `contents:write` / `pull-requests:write` permissions. They do not
+require a persistent push PAT. Both writers run from `main`, share a per-release
+concurrency group, and use
+`automation/release-evidence/<release-key>-<evidence-tree>-<base-commit>` branches.
+The release key hashes the release ID. Each payload and base gets an immutable
+candidate; returning to a previously published payload creates a fresh PR.
+A retry reuses a pending branch only when its complete evidence directory matches;
+another pending or closed-unmerged generation requires maintainer inspection
+before publishing more evidence for that release.
+Publication requires a normal squash merge of the exact PR head and verifies the
+complete evidence directory at the actual merge commit and fresh `origin/main`.
+Blocked or unconfirmed merges leave the PR and branch available and fail visibly.
 Unrelated concurrent commits can be rebased; changes within the same evidence
 directory fail with a request to regenerate from current main. Even an unchanged
 local record is checked against fresh remote state before reporting success.
-Evidence commits do not trigger push-triggered Actions workflows. Auth repair
+Generated PR workflows may require approval; publication respects the repository's
+effective merge rules. Evidence commits do not trigger push-triggered Actions workflows. Auth repair
 verification must use a new, clearly labeled verification record because
 regenerating an existing release ID overwrites its stored evidence.
 
