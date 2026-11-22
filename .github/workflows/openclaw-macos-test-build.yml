@@ -1,0 +1,209 @@
+name: OpenClaw macOS Native Test Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Reviewed exact 40-character openclaw/openclaw branch-head SHA (approve before dispatch)
+        required: true
+        type: string
+      version_override:
+        description: Numeric CFBundleVersion above the stable appcast version (APP_BUILD, not the package version)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-native-test-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 120
+    outputs:
+      unsigned_artifact_id: ${{ steps.unsigned.outputs.artifact-id }}
+    steps:
+      - name: Checkout test-build tools
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          persist-credentials: false
+
+      - name: Admit actor, canonical source and test-build inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+        run: |
+          python3 release-tools/scripts/macos-test-build.py admit
+
+      - name: Checkout exact public source
+        uses: actions/checkout@v7
+        with:
+          repository: openclaw/openclaw
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Verify selected source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: source/package.json
+          run_install: false
+
+      - name: Setup Node.js without release caches
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+
+      - name: Prepare macOS packaging tools
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/macos-test-tools"
+          ln -s "$GITHUB_WORKSPACE/release-tools/scripts/macos27-hdiutil.py" "$RUNNER_TEMP/macos-test-tools/hdiutil"
+          echo "$RUNNER_TEMP/macos-test-tools" >> "$GITHUB_PATH"
+          bash release-tools/scripts/prepare-macos-metal.sh
+
+      - name: Build same-source native bindings and XCFramework
+        working-directory: source/crates/openclaw-iroh-ffi
+        env:
+          RUSTUP_TOOLCHAIN: "1.99.0"
+          OPENCLAW_IROH_APPLE_PLATFORMS: macos
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --target aarch64-apple-darwin,x86_64-apple-darwin
+          scripts/generate-bindings.sh
+          git diff --exit-code -- generated
+          test -z "$(git ls-files --others --exclude-standard generated)"
+          scripts/build-apple.sh
+
+      # Candidate code executes only here, without the signing environment/key.
+      # No SwiftPM cache is restored or saved by this workflow.
+      - name: Package native-enabled arm64 app without credentials
+        working-directory: source
+        env:
+          OPENCLAW_IROH_NATIVE: "1"
+          BUILD_CONFIG: release
+          BUILD_ARCHS: arm64
+          BUNDLE_ID: ai.openclaw.mac
+          APP_BUILD: ${{ inputs.version_override }}
+          SIGN_IDENTITY: "-"
+        run: |
+          set -euo pipefail
+          scripts/package-mac-app.sh
+          /usr/bin/ditto --norsrc -c -k --keepParent dist/OpenClaw.app "$RUNNER_TEMP/OpenClaw-unsigned.zip"
+
+      - name: Upload isolated signing input
+        id: unsigned
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-native-test-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/OpenClaw-unsigned.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  sign:
+    needs: build
+    if: ${{ github.repository == 'openclaw/releases' && github.ref == 'refs/heads/main' }}
+    runs-on: xcode-27
+    timeout-minutes: 45
+    environment: mac-release
+    steps:
+      - name: Checkout test-build tools
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          persist-credentials: false
+
+      # Signing code is trusted workflow-owned code, never the source_sha input.
+      - name: Checkout trusted product signing tools
+        uses: actions/checkout@v7
+        with:
+          repository: openclaw/openclaw
+          ref: 0409efbc343c579f3d711f723811c58fa9497f05
+          path: signing-tools
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Recheck actor, canonical source and version before signing secrets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+          UNSIGNED_ARTIFACT_ID: ${{ needs.build.outputs.unsigned_artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "$UNSIGNED_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          python3 release-tools/scripts/macos-test-build.py admit
+
+      - name: Download this run's unsigned app
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.build.outputs.unsigned_artifact_id }}
+          merge-multiple: true
+          path: signing-input
+
+      - name: Admit app archive and exact build metadata
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+        run: |
+          set -euo pipefail
+          python3 release-tools/scripts/macos-test-build.py unpack signing-input/OpenClaw-unsigned.zip signing-input
+          /usr/bin/lipo -verify_arch arm64 signing-input/OpenClaw.app/Contents/MacOS/OpenClaw
+          test "$(/usr/bin/lipo -archs signing-input/OpenClaw.app/Contents/MacOS/OpenClaw)" = arm64
+
+      - name: Sign with Foundation Developer ID and verify
+        env:
+          MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          python3 release-tools/scripts/macos-test-build.py sign signing-input/OpenClaw.app signing-tools/scripts/codesign-mac-app.sh
+
+      - name: Archive signed app and provenance
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+        run: |
+          set -euo pipefail
+          mkdir output
+          /usr/bin/ditto --norsrc -c -k --keepParent signing-input/OpenClaw.app output/OpenClaw-native-test.zip
+          python3 release-tools/scripts/macos-test-build.py manifest output
+
+      - name: Upload signed test artifact only
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-native-test-${{ inputs.source_sha }}-${{ inputs.version_override }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/OpenClaw-native-test.zip
+            output/SHA256SUMS
+            output/source-sha.txt
+            output/build-version.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
