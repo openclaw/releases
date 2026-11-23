@@ -400,6 +400,9 @@ printf '%s\\n' '<rss>fixture signed enclosure</rss>' > appcast.xml
 
     def test_release_build_is_owned_by_validation_before_metadata(self):
         publish = workflow('openclaw-macos-publish.yml')
+        metadata = step_source(publish, 'Validate release tag and package metadata')
+        self.assertIn('OPENCLAW_NPM_RELEASE_CHECK_COMMAND_TIMEOUT_MS: "900000"',
+                      metadata.split('        run:', 1)[0])
         # The validation phase ends where packaging begins; provenance is captured after packaging.
         phase = publish.split('      - name: Release packaging guards\n', 1)[1].split('      - name: Package macOS smoke-test artifacts\n', 1)[0]
         steps = phase.split('      - name: ')[1:]
