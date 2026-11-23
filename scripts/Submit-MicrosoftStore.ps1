@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory)][string]$ApplicationId,
     [ValidateSet('production', 'development')][string]$Channel = 'production',
     [string]$FlightId,
+    [string]$BootstrapSubmissionId,
     [Parameter(Mandatory)][string]$PackageIdentityName,
     [Parameter(Mandatory)][string]$Publisher,
     [Parameter(Mandatory)][guid]$TenantId,
@@ -27,6 +28,9 @@ if (-not $isFlight -and -not [string]::IsNullOrWhiteSpace($FlightId)) {
     throw 'Production submission must not specify a flight ID.'
 }
 if ($isFlight) { $FlightId = $parsedFlightId.ToString('D') }
+if ($BootstrapSubmissionId -and (-not $isFlight -or $BootstrapSubmissionId -cnotmatch '^[1-9][0-9]*$')) {
+    throw 'Bootstrap requires Development and an exact numeric submission ID.'
+}
 $packagesProperty = if ($isFlight) { 'FlightPackages' } else { 'ApplicationPackages' }
 $pendingProperty = if ($isFlight) { 'PendingFlightSubmission' } else { 'PendingApplicationSubmission' }
 $publishedProperty = if ($isFlight) { 'LastPublishedFlightSubmission' } else { 'LastPublishedApplicationSubmission' }
@@ -310,7 +314,7 @@ try {
         }
     }
     $pendingSubmission = $target.PSObject.Properties[$pendingProperty]
-    if ($null -ne $pendingSubmission -and $null -ne $pendingSubmission.Value) {
+    if (-not $BootstrapSubmissionId -and $null -ne $pendingSubmission -and $null -ne $pendingSubmission.Value) {
         throw 'Partner Center already has a pending submission; automation will not replace it.'
     }
     $publishedInfo = $target.PSObject.Properties[$publishedProperty]
@@ -326,9 +330,21 @@ try {
         throw 'The Partner Center product must have a published submission.'
     }
 
-    $draft = Invoke-StoreApi -Method Post `
-        -Path $(if ($isFlight) { "$targetPath/submissions" } else { "$targetPath/submissions?isMinimalResponse=true" })
-    $draftId = [string](Get-RequiredProperty $draft 'Id')
+    if ($BootstrapSubmissionId) {
+        if ($publishedId -or $null -eq $pendingSubmission -or $null -eq $pendingSubmission.Value -or
+            [string](Get-RequiredProperty $pendingSubmission.Value 'Id') -cne $BootstrapSubmissionId) {
+            throw 'Bootstrap requires the exact pending submission of a never-published flight.'
+        }
+        # First-flight creation already creates this draft (StoreBroker New-ApplicationFlight).
+        # Deleting it also deletes the flight. Preserve it even if upload or commit fails.
+        $draftDeletionAllowed = $false
+        $draftId = $BootstrapSubmissionId
+    } else {
+        $draft = Invoke-StoreApi -Method Post `
+            -Path $(if ($isFlight) { "$targetPath/submissions" } else { "$targetPath/submissions?isMinimalResponse=true" })
+        $draftId = [string](Get-RequiredProperty $draft 'Id')
+    }
+    if ($isFlight -and -not $publishedId) { $draftDeletionAllowed = $false }
     Assert-NonEmptyValue -Name 'Draft submission ID' -Value $draftId
     $encodedDraftId = [Uri]::EscapeDataString($draftId)
     Assert-OwnedDraft -SubmissionId $draftId
@@ -336,6 +352,12 @@ try {
         -Path "$targetPath/submissions/$encodedDraftId"
     if ([string](Get-RequiredProperty $draft 'Id') -cne $draftId) {
         throw 'Store returned a different draft than the automation created.'
+    }
+    if ($BootstrapSubmissionId -and (
+        -not (Test-ExpectedFlightId (Get-RequiredProperty $draft 'FlightId')) -or
+        [string](Get-RequiredProperty $draft 'Status') -cne 'PendingCommit' -or
+        @(Get-RequiredProperty $draft 'FlightPackages').Count -ne 0)) {
+        throw 'Bootstrap requires the exact empty uncommitted flight submission.'
     }
     $uploadUri = [string](Get-RequiredProperty $draft 'FileUploadUrl')
     Assert-NonEmptyValue -Name 'Draft upload URL' -Value $uploadUri
@@ -418,7 +440,7 @@ try {
     $commitStatus = [string](Get-RequiredProperty $commit 'Status')
     if ($commitStatus -cne 'CommitStarted') {
         if ($commitStatus -cin @('CommitFailed', 'Canceled')) {
-            $draftDeletionAllowed = $true
+            $draftDeletionAllowed = -not ($isFlight -and -not $publishedId)
         }
         throw "Store did not accept the submission commit: $commitStatus"
     }
@@ -436,6 +458,7 @@ try {
             bundleSha256 = (Get-FileHash -LiteralPath $resolvedBundle -Algorithm SHA256).Hash.ToLowerInvariant()
             publishedSubmissionId = $publishedId
             draftSubmissionId = $draftId
+            bootstrapSubmissionId = $BootstrapSubmissionId
             publishedMetadataSha256 = $publishedMetadataHash
             draftMetadataSha256 = $draftMetadataHash
             preparedMutationSha256 = $draftMutationHash

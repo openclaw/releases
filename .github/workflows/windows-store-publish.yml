@@ -1,5 +1,5 @@
 name: Publish Windows Microsoft Store
-run-name: Store approval · ${{ inputs.product }} · ${{ inputs.channel }} · source run ${{ inputs.run_id }}
+run-name: Store approval · ${{ inputs.product }} · ${{ inputs.channel }} · source run ${{ inputs.run_id }} · initial draft ${{ inputs.bootstrap_submission_id }}
 
 on:
   workflow_dispatch:
@@ -19,6 +19,10 @@ on:
         options: [production, development]
         default: production
         required: true
+      bootstrap_submission_id:
+        description: Exact empty API-created first-flight submission; manual Development only
+        type: string
+        required: false
       automatic:
         description: Automated release handoff (Development requires activation)
         type: boolean
@@ -55,7 +59,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           STORE_PRODUCT: ${{ inputs.product }}
+          BOOTSTRAP_SUBMISSION_ID: ${{ inputs.bootstrap_submission_id }}
+          STORE_CHANNEL: ${{ inputs.channel }}
+          STORE_AUTOMATIC: ${{ inputs.automatic && 'true' || 'false' }}
         run: |
+          if ($env:BOOTSTRAP_SUBMISSION_ID -and ($env:STORE_CHANNEL -cne 'development' -or $env:STORE_AUTOMATIC -cne 'false' -or $env:BOOTSTRAP_SUBMISSION_ID -cnotmatch '^[1-9][0-9]*$')) {
+            throw 'Initial-flight submission requires an explicit manual Development approval.'
+          }
           Import-Module ./scripts/MicrosoftStore.psm1
           Assert-MicrosoftStoreEnvironment -Product $env:STORE_PRODUCT
       - name: Create source artifact reader
@@ -103,6 +113,8 @@ jobs:
       - name: Bind approval to the actual bundle bytes
         id: bundle
         shell: pwsh
+        env:
+          BOOTSTRAP_SUBMISSION_ID: ${{ inputs.bootstrap_submission_id }}
         run: |
           Import-Module ./scripts/MicrosoftStore.psm1
           $source = Get-Content (Join-Path $env:RUNNER_TEMP 'store-source.json') -Raw | ConvertFrom-Json
@@ -113,6 +125,7 @@ jobs:
           @(
             '## Release-manager approval required'
             "- Product: $($approved.product)"
+            "- Explicit first-flight submission: $env:BOOTSTRAP_SUBMISSION_ID"
             "- Store destination: $($approved.channel)"
             "- Flight GUID: $($approved.flightId)"
             "- Release: $($approved.releaseTag) at $($approved.sourceSha)"
@@ -196,7 +209,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           STORE_PRODUCT: ${{ inputs.product }}
+          BOOTSTRAP_SUBMISSION_ID: ${{ inputs.bootstrap_submission_id }}
+          STORE_CHANNEL: ${{ inputs.channel }}
+          STORE_AUTOMATIC: ${{ inputs.automatic && 'true' || 'false' }}
         run: |
+          if ($env:BOOTSTRAP_SUBMISSION_ID -and ($env:STORE_CHANNEL -cne 'development' -or $env:STORE_AUTOMATIC -cne 'false' -or $env:BOOTSTRAP_SUBMISSION_ID -cnotmatch '^[1-9][0-9]*$')) {
+            throw 'Initial-flight submission requires an explicit manual Development approval.'
+          }
           Import-Module ./scripts/MicrosoftStore.psm1
           Assert-MicrosoftStoreEnvironment -Product $env:STORE_PRODUCT
       - name: Request the environment-bound Store assertion
@@ -221,12 +240,14 @@ jobs:
           MSSTORE_CLIENT_ID: ${{ vars.MSSTORE_CLIENT_ID }}
           MSSTORE_APPLICATION_ID: ${{ vars.MSSTORE_APPLICATION_ID }}
           MSSTORE_ASSERTION_FILE: ${{ steps.oidc.outputs.assertion_path }}
+          BOOTSTRAP_SUBMISSION_ID: ${{ inputs.bootstrap_submission_id }}
         run: |
           Import-Module ./scripts/MicrosoftStore.psm1
           $config = Get-MicrosoftStoreProduct $env:STORE_PRODUCT
           $approved = $env:APPROVED_SOURCE | ConvertFrom-Json
           $destination = @{ Channel = $approved.channel }
           if ($approved.channel -ceq 'development') { $destination.FlightId = $approved.flightId }
+          if ($env:BOOTSTRAP_SUBMISSION_ID) { $destination.BootstrapSubmissionId = $env:BOOTSTRAP_SUBMISSION_ID }
           ./scripts/Submit-MicrosoftStore.ps1 -BundlePath (Join-Path ./store $approved.bundleName) `
             @destination `
             -ApplicationId $env:MSSTORE_APPLICATION_ID -TenantId $env:MSSTORE_TENANT_ID -ClientId $env:MSSTORE_CLIENT_ID `

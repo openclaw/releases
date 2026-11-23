@@ -45,7 +45,7 @@ $http = {
             }
             GroupIds = if ($global:StoreFlightTest_scenario -eq 'no-group') { @() } else { @('testers') }
             PendingFlightSubmission = if ($global:StoreFlightTest_pending) { [pscustomobject]@{ Id = $global:StoreFlightTest_pending } } else { $null }
-            LastPublishedFlightSubmission = if ($global:StoreFlightTest_scenario -eq 'first-flight') { $null } else { [pscustomobject]@{ Id = 'published' } }
+            LastPublishedFlightSubmission = if ($global:StoreFlightTest_scenario -like 'first-flight*') { $null } else { [pscustomobject]@{ Id = 'published' } }
         }
     }
     if ($Method -eq 'Get' -and $Uri -ceq "$flightPath/submissions/published") { return Copy-Fixture $global:StoreFlightTest_published }
@@ -55,8 +55,8 @@ $http = {
         $global:StoreFlightTest_pending = 'owned'
         return Copy-Fixture $global:StoreFlightTest_draft
     }
-    if ($Method -eq 'Get' -and $Uri -ceq "$flightPath/submissions/owned") { return Copy-Fixture $global:StoreFlightTest_draft }
-    if ($Method -eq 'Put' -and $Uri -ceq "$flightPath/submissions/owned") {
+    if ($Method -eq 'Get' -and $Uri -ceq "$flightPath/submissions/$global:StoreFlightTest_pending") { return Copy-Fixture $global:StoreFlightTest_draft }
+    if ($Method -eq 'Put' -and $Uri -ceq "$flightPath/submissions/$global:StoreFlightTest_pending") {
         $global:StoreFlightTest_draft = $Body | ConvertFrom-Json
         if ($global:StoreFlightTest_draft.PSObject.Properties.Name -contains 'ApplicationPackages' -or
             @($global:StoreFlightTest_draft.FlightPackages).Count -ne 1 -or
@@ -65,29 +65,30 @@ $http = {
         }
         return Copy-Fixture $global:StoreFlightTest_draft
     }
-    if ($Method -eq 'Post' -and $Uri -ceq "$flightPath/submissions/owned/Commit") {
-        if ($global:StoreFlightTest_scenario -eq 'lost-commit') { throw 'Lost commit response.' }
+    if ($Method -eq 'Post' -and $Uri -ceq "$flightPath/submissions/$global:StoreFlightTest_pending/Commit") {
+        if ($global:StoreFlightTest_scenario -like '*lost-commit') { throw 'Lost commit response.' }
         $global:StoreFlightTest_pending = $null
         return [pscustomobject]@{ Status = 'CommitStarted' }
     }
-    if ($Method -eq 'Delete' -and $Uri -ceq "$flightPath/submissions/owned") { $global:StoreFlightTest_pending = $null; return }
+    if ($Method -eq 'Delete' -and $Uri -in @("$flightPath/submissions/owned", "$flightPath/submissions/123")) { $global:StoreFlightTest_pending = $null; return }
     throw "Unexpected request: $Method $Uri"
 }
 $upload = {
     param($Uri, $Path, $TimeoutSeconds)
     if ($Uri -cne 'https://example.invalid/upload' -or -not (Test-Path $Path)) { throw 'Invalid upload.' }
     switch ($global:StoreFlightTest_scenario) {
+        'first-flight-upload-fail' { throw 'Upload failed.' }
         'metadata-drift' { $global:StoreFlightTest_draft.NotesForCertification = 'changed' }
         'wrong-submission-flight' { $global:StoreFlightTest_draft.FlightId = 'wrong' }
         'replaced-draft' { $global:StoreFlightTest_pending = 'foreign' }
         'package-drift' { $global:StoreFlightTest_draft.FlightPackages[0].FileName = 'changed.msixbundle' }
     }
 }
-function Invoke-Fixture([string]$Channel = 'development', [string]$Id = $flightId) {
+function Invoke-Fixture([string]$Channel = 'development', [string]$Id = $flightId, [string]$Bootstrap = '') {
     $parameters = @{
         BundlePath = Join-Path $root 'fixture.msixbundle'
         ApplicationId = 'TESTPRODUCT'; PackageIdentityName = 'Test.Product'; Publisher = 'CN=Test'
-        Channel = $Channel; FlightId = $Id
+        Channel = $Channel; FlightId = $Id; BootstrapSubmissionId = $Bootstrap
         TenantId = '11111111-1111-1111-1111-111111111111'
         ClientId = '22222222-2222-2222-2222-222222222222'
         ClientAssertionFile = Join-Path $root 'assertion'
@@ -160,7 +161,41 @@ try {
         Assert-Rejected { Invoke-Fixture -Channel $channel } 'must not specify a flight'
     }
     if ($global:StoreFlightTest_calls.Count) { throw 'Case-variant destination reached authentication.' }
-    Write-Host 'Store flight submission: 23 scenarios passed.'
+    foreach ($case in @('ok', 'wrong-id', 'published', 'nonempty', 'committed', 'wrong-submission-flight', 'upload-fail', 'lost-commit')) {
+        Reset-Fixture
+        $global:StoreFlightTest_scenario = 'first-flight'
+        $global:StoreFlightTest_pending = '123'
+        $global:StoreFlightTest_draft = Copy-Fixture $global:StoreFlightTest_published
+        $global:StoreFlightTest_draft.Id = '123'
+        $global:StoreFlightTest_draft | Add-Member Status 'PendingCommit'
+        $expected = ''
+        switch ($case) {
+            'wrong-id' { $global:StoreFlightTest_pending = '456'; $expected = 'exact pending' }
+            'published' { $global:StoreFlightTest_scenario = ''; $expected = 'never-published' }
+            'nonempty' { $global:StoreFlightTest_draft.FlightPackages = @(@{ FileName = 'foreign' }); $expected = 'empty uncommitted' }
+            'committed' { $global:StoreFlightTest_draft.Status = 'CommitStarted'; $expected = 'empty uncommitted' }
+            'wrong-submission-flight' { $global:StoreFlightTest_draft.FlightId = 'wrong'; $expected = 'empty uncommitted' }
+            'upload-fail' { $global:StoreFlightTest_scenario = 'first-flight-upload-fail'; $expected = 'Upload failed' }
+            'lost-commit' { $global:StoreFlightTest_scenario = 'first-flight-lost-commit'; $expected = 'Lost commit' }
+        }
+        if ($expected) { Assert-Rejected { Invoke-Fixture -Bootstrap '123' } $expected }
+        else {
+            Invoke-Fixture -Bootstrap '123'
+            $evidence = Get-Content (Join-Path $root 'evidence.json') -Raw | ConvertFrom-Json
+            if ($evidence.bootstrapSubmissionId -cne '123' -or $evidence.commitStatus -cne 'CommitStarted') { throw 'Missing bootstrap evidence.' }
+        }
+        if ($global:StoreFlightTest_calls -match '^Delete ' -or $global:StoreFlightTest_calls -match '^Post .*/submissions$') {
+            throw 'Initial flight draft was deleted or replaced.'
+        }
+        if ($expected -and $case -notin @('upload-fail', 'lost-commit') -and $global:StoreFlightTest_calls -match '^(Put|Post) https://manage') {
+            throw 'Invalid initial draft was mutated.'
+        }
+    }
+    Reset-Fixture
+    Assert-Rejected { Invoke-Fixture -Channel production -Id '' -Bootstrap '123' } 'Bootstrap requires'
+    Assert-Rejected { Invoke-Fixture -Bootstrap 'bad' } 'Bootstrap requires'
+    if ($global:StoreFlightTest_calls.Count) { throw 'Invalid bootstrap reached authentication.' }
+    Write-Host 'Store flight submission: 33 scenarios passed.'
 } finally {
     Get-Variable -Scope Global -Name StoreFlightTest_* | Remove-Variable -Scope Global
     Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue

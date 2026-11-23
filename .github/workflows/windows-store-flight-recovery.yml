@@ -9,7 +9,7 @@ on:
         required: true
       operation:
         type: choice
-        options: [inspect, create, discard-draft]
+        options: [inspect, create, replace-empty-flight]
         required: true
         default: inspect
       flight_id:
@@ -21,7 +21,7 @@ on:
         type: string
         required: true
       submission_id:
-        description: Exact empty bootstrap draft ID, only for discard-draft
+        description: Exact empty bootstrap draft ID; replacement deletes the never-published flight
         type: string
         required: false
 permissions: {}

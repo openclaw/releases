@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('inspect', 'create', 'discard-draft')][string]$Operation,
+    [Parameter(Mandatory)][ValidateSet('inspect', 'create', 'replace-empty-flight')][string]$Operation,
     [Parameter(Mandatory)][ValidateSet('gateway', 'companion')][string]$Product,
     [Parameter(Mandatory)][ValidatePattern('^[A-Z0-9]+$')][string]$ApplicationId,
     [Parameter(Mandatory)][guid]$FlightId,
@@ -16,8 +16,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'MicrosoftStore.psm1') -Force
 if ($FlightId -eq [guid]::Empty) { throw 'Expected flight ID must not be empty.' }
-if (($Operation -eq 'discard-draft') -ne (-not [string]::IsNullOrEmpty($SubmissionId))) {
-    throw 'Only discard-draft requires an exact submission ID.'
+if (($Operation -eq 'replace-empty-flight') -ne (-not [string]::IsNullOrEmpty($SubmissionId))) {
+    throw 'Only replace-empty-flight requires an exact submission ID.'
 }
 $config = Get-MicrosoftStoreProduct $Product
 if ($null -eq $HttpInvoker) {
@@ -81,16 +81,10 @@ if ($Operation -eq 'create') {
     if ($matches.Count -ne 0 -or @($flights | Where-Object friendlyName -IEQ 'Development').Count -ne 0) {
         throw 'Expected old flight or Development flight already exists; inspect instead of creating another.'
     }
-    $record.status = 'create-requested'; Save-Evidence
-    # Never retry an ambiguous mutation; inspect the retained intent and remote inventory.
-    $created = Invoke-Api Post "$applicationPath/flights" @{ friendlyName = 'Development'; groupIds = @($GroupId) }
-    $newId = [guid]$created.flightId
-    if ($newId -eq [guid]::Empty -or $newId -eq $FlightId) { throw 'Store returned an invalid replacement flight ID.' }
-    $record.flightId = $newId.ToString(); Save-Evidence
-    $verified = Invoke-Api Get "$applicationPath/flights/$newId"
-    Assert-Flight $verified $newId
 } else {
-    if ($matches.Count -ne 1) { throw 'Expected flight is missing or ambiguous.' }
+    if ($matches.Count -ne 1 -or @($flights | Where-Object friendlyName -IEQ 'Development').Count -ne 1) {
+        throw 'Expected flight is missing or ambiguous.'
+    }
     $path = "$applicationPath/flights/$FlightId"
     $flight = Invoke-Api Get $path
     Assert-Flight $flight $FlightId
@@ -99,17 +93,37 @@ if ($Operation -eq 'create') {
     $draft = Invoke-Api Get "$path/submissions/$SubmissionId"
     if ([string]$draft.id -cne $SubmissionId -or [guid]$draft.flightId -ne $FlightId -or
         $draft.status -cne 'PendingCommit' -or @($draft.flightPackages).Count -ne 0) {
-        throw 'Only the exact empty, uncommitted bootstrap draft may be discarded.'
+        throw 'Only the exact empty, uncommitted bootstrap flight may be replaced.'
     }
-    # Recheck the pending pointer immediately before deleting the exact draft.
     $fresh = Invoke-Api Get $path
     Assert-Flight $fresh $FlightId
     if ([string](Optional $fresh 'pendingFlightSubmission').id -cne $SubmissionId) { throw 'Pending draft changed.' }
-    $record.status = 'discard-requested'; Save-Evidence
-    Invoke-Api Delete "$path/submissions/$SubmissionId" | Out-Null
-    $verified = Invoke-Api Get $path
-    Assert-Flight $verified $FlightId
-    $record.flightId = $FlightId.ToString()
+    $record.status = 'replace-requested'; Save-Evidence
+    # Initial drafts and their flights share a lifetime. Replace the explicitly approved
+    # empty flight, not its portal-owned draft, then preserve the API-created initial draft.
+    Invoke-Api Delete $path | Out-Null
+    $remaining = Invoke-Api Get "$applicationPath/listflights?top=100"
+    if (@($remaining.value).Count -ne [int]$remaining.totalCount -or (Optional $remaining '@nextLink') -or
+        @($remaining.value | Where-Object { [guid]$_.flightId -eq $FlightId -or $_.friendlyName -ieq 'Development' }).Count) {
+        throw 'Flight removal was not verified; inspect instead of retrying.'
+    }
 }
-if ($null -ne (Optional $verified 'pendingFlightSubmission')) { throw 'Flight still has a pending submission.' }
+$record.status = 'create-requested'; Save-Evidence
+$created = Invoke-Api Post "$applicationPath/flights" @{ friendlyName = 'Development'; groupIds = @($GroupId) }
+$newId = [guid]$created.flightId
+if ($newId -eq [guid]::Empty -or $newId -eq $FlightId) { throw 'Store returned an invalid replacement flight ID.' }
+$record.flightId = $newId.ToString(); Save-Evidence
+$initialId = [string](Optional (Optional $created 'pendingFlightSubmission') 'id')
+if ($initialId -cnotmatch '^[1-9][0-9]*$') { throw 'Created flight did not identify its initial submission.' }
+$record.initialSubmissionId = $initialId; Save-Evidence
+$verified = Invoke-Api Get "$applicationPath/flights/$newId"
+Assert-Flight $verified $newId
+if ([string](Optional (Optional $verified 'pendingFlightSubmission') 'id') -cne $initialId) {
+    throw 'Created flight initial submission changed.'
+}
+$initial = Invoke-Api Get "$applicationPath/flights/$newId/submissions/$initialId"
+if ([string]$initial.id -cne $initialId -or [guid]$initial.flightId -ne $newId -or
+    $initial.status -cne 'PendingCommit' -or @($initial.flightPackages).Count -ne 0) {
+    throw 'Created flight initial submission is not empty and uncommitted.'
+}
 $record.status = 'verified'; Save-Evidence
