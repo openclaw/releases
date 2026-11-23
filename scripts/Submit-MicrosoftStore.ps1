@@ -257,26 +257,14 @@ if ($null -eq $UploadInvoker) {
     }
 }
 
-$tokenEndpoint = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
-$tokenResponse = & $HttpInvoker 'Post' $tokenEndpoint $null ([ordered]@{
-    client_id = $ClientId.ToString()
-    scope = [string]$policy.oauthScope
-    client_assertion = $assertion
-    client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
-    grant_type = 'client_credentials'
-}) 'application/x-www-form-urlencoded'
-$accessToken = [string](Get-RequiredProperty $tokenResponse 'access_token')
-$expiresIn = [long](Get-RequiredProperty $tokenResponse 'expires_in')
-if ([string]::IsNullOrWhiteSpace($accessToken) -or $expiresIn -lt $minimumLifetime) {
-    throw 'Microsoft Store access token is missing or too short-lived for the upload.'
-}
-if ($env:GITHUB_ACTIONS -eq 'true') { Write-Output "::add-mask::$accessToken" }
+Import-Module (Join-Path $PSScriptRoot 'MicrosoftStore.psm1') -Force
+$apiHeaders = New-MicrosoftStoreAccessHeaders -TenantId $TenantId -ClientId $ClientId -Assertion $assertion `
+    -MinimumLifetimeSeconds $minimumLifetime -HttpInvoker $HttpInvoker
 
 $apiBase = [string]$policy.apiBaseUri
 $encodedApplicationId = [Uri]::EscapeDataString($ApplicationId)
 $applicationPath = "/v1.0/my/applications/$encodedApplicationId"
 $targetPath = if ($isFlight) { "$applicationPath/flights/$([Uri]::EscapeDataString($FlightId))" } else { $applicationPath }
-$apiHeaders = @{ Authorization = "Bearer $accessToken"; TenantId = $TenantId.ToString() }
 function Invoke-StoreApi {
     param(
         [Parameter(Mandatory)][string]$Method,

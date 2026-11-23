@@ -210,3 +210,51 @@ These use synthetic GitHub/Store responses and workflow handoff fixtures. They
 cannot authenticate, submit a real bundle, prove environment enforcement, or
 establish certification/tester delivery. Run the repository's Python and Node
 workflow suites for CI/workflow changes as described in the README.
+
+## Recover a never-published Development flight
+
+Use `windows-store-flight-recovery.yml` on reviewed `main`, under the same
+product-specific release-manager environment, OIDC identity, and concurrency key
+as publication. It cannot upload packages, commit submissions, change tester
+membership, or write production submissions. Its run title identifies the exact
+operation, configured flight, draft, and existing tester group before approval.
+
+Start with `operation=inspect`. The other operations are deliberately narrow:
+
+- `create`: require the configured old GUID to be absent and no flight named
+  Development to exist in a complete inventory. Create Development with the
+  approved existing group through the Store API, which creates no initial draft.
+  Read back the new GUID, name, group, and absence of pending/published submissions.
+- `discard-draft`: require the configured flight and sole tester group to match,
+  no published flight submission, and the exact approved draft to be empty and
+  `PendingCommit`. Recheck the pending pointer, delete only that submission via
+  its flight-scoped endpoint, then verify the flight/group survived and no draft
+  remains. Never use the portal's initial-submission Delete as an equivalent:
+  it can remove a never-published flight itself.
+
+Example (replace placeholders with the exact observed IDs):
+
+```sh
+gh workflow run windows-store-flight-recovery.yml --repo openclaw/releases --ref main \
+  -f product=companion -f operation=inspect -f flight_id=CONFIGURED_GUID -f group_id=EXISTING_GROUP_ID
+```
+
+For `discard-draft`, also supply `-f submission_id=EXACT_DRAFT_ID`. Read and
+approve the corresponding environment deployment, then inspect the retained
+`store-flight-recovery-PRODUCT-ATTEMPT` receipt. Only `status=verified` proves a
+mutation and its readback completed. A `create-requested` or `discard-requested`
+receipt records an uncertain mutation, not permission to retry: run inspect and
+reconcile the exact remote state first. The operation never retries mutations or
+silently adopts another flight. Incomplete inventories fail closed.
+
+After successful creation, update only the central product's configured
+`MSSTORE_*_DEVELOPMENT_FLIGHT_ID` to the verified receipt GUID and read it back.
+Do not reuse an approval bound to the old destination: request a fresh publication
+with the original qualified source run, then approve the exact new flight and
+bundle. Recovery is neither package submission nor certification. No activation
+flag or production setting is changed by the recovery workflow.
+
+API contracts:
+[create a flight without a submission](https://learn.microsoft.com/en-us/windows/uwp/monetize/create-a-flight),
+[delete only a flight submission](https://learn.microsoft.com/en-us/windows/uwp/monetize/delete-a-flight-submission),
+[list flights](https://learn.microsoft.com/en-us/windows/uwp/monetize/get-flights-for-an-app).
