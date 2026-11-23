@@ -285,4 +285,26 @@ function Confirm-AuthorizedStoreBundle {
     $record
 }
 
-Export-ModuleMember -Function Get-MicrosoftStoreProduct, Assert-MicrosoftStoreEnvironment, Get-AuthorizedStoreSource, Confirm-AuthorizedStoreBundle
+function New-MicrosoftStoreAccessHeaders {
+    param(
+        [Parameter(Mandatory)][guid]$TenantId,
+        [Parameter(Mandatory)][guid]$ClientId,
+        [Parameter(Mandatory)][string]$Assertion,
+        [Parameter(Mandatory)][long]$MinimumLifetimeSeconds,
+        [Parameter(Mandatory)][scriptblock]$HttpInvoker
+    )
+    $response = & $HttpInvoker 'Post' "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" $null ([ordered]@{
+        client_id = $ClientId.ToString()
+        scope = 'https://manage.devcenter.microsoft.com/.default'
+        client_assertion = $Assertion
+        client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+        grant_type = 'client_credentials'
+    }) 'application/x-www-form-urlencoded'
+    if ([string]::IsNullOrWhiteSpace([string]$response.access_token) -or [long]$response.expires_in -lt $MinimumLifetimeSeconds) {
+        throw 'Microsoft Store access token is missing or too short-lived for the operation.'
+    }
+    if ($env:GITHUB_ACTIONS -eq 'true') { Write-Host "::add-mask::$($response.access_token)" }
+    @{ Authorization = "Bearer $($response.access_token)"; TenantId = $TenantId.ToString() }
+}
+
+Export-ModuleMember -Function Get-MicrosoftStoreProduct, Assert-MicrosoftStoreEnvironment, Get-AuthorizedStoreSource, Confirm-AuthorizedStoreBundle, New-MicrosoftStoreAccessHeaders

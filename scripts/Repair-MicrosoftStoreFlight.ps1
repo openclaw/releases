@@ -1,0 +1,115 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][ValidateSet('inspect', 'create', 'discard-draft')][string]$Operation,
+    [Parameter(Mandatory)][ValidateSet('gateway', 'companion')][string]$Product,
+    [Parameter(Mandatory)][ValidatePattern('^[A-Z0-9]+$')][string]$ApplicationId,
+    [Parameter(Mandatory)][guid]$FlightId,
+    [Parameter(Mandatory)][ValidatePattern('^[1-9][0-9]*$')][string]$GroupId,
+    [ValidatePattern('^[1-9][0-9]*$')][string]$SubmissionId,
+    [Parameter(Mandatory)][guid]$TenantId,
+    [Parameter(Mandatory)][guid]$ClientId,
+    [Parameter(Mandatory)][string]$ClientAssertionFile,
+    [Parameter(Mandatory)][string]$EvidencePath,
+    [scriptblock]$HttpInvoker
+)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'MicrosoftStore.psm1') -Force
+if ($FlightId -eq [guid]::Empty) { throw 'Expected flight ID must not be empty.' }
+if (($Operation -eq 'discard-draft') -ne (-not [string]::IsNullOrEmpty($SubmissionId))) {
+    throw 'Only discard-draft requires an exact submission ID.'
+}
+$config = Get-MicrosoftStoreProduct $Product
+if ($null -eq $HttpInvoker) {
+    $HttpInvoker = {
+        param($Method, $Uri, $Headers, $Body, $ContentType)
+        $parameters = @{ Method = $Method; Uri = $Uri; ErrorAction = 'Stop'; ContentType = $ContentType }
+        if ($null -ne $Headers) { $parameters.Headers = $Headers }
+        if ($null -ne $Body) { $parameters.Body = $Body }
+        Invoke-RestMethod @parameters
+    }
+}
+$assertion = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $ClientAssertionFile).Path).Trim()
+$headers = New-MicrosoftStoreAccessHeaders -TenantId $TenantId -ClientId $ClientId -Assertion $assertion `
+    -MinimumLifetimeSeconds 300 -HttpInvoker $HttpInvoker
+$applicationPath = "/v1.0/my/applications/$ApplicationId"
+function Invoke-Api([string]$Method, [string]$Path, $Body = $null) {
+    $json = if ($null -eq $Body) { $null } else { $Body | ConvertTo-Json -Depth 10 -Compress }
+    & $HttpInvoker $Method ("https://manage.devcenter.microsoft.com" + $Path) $headers $json 'application/json'
+}
+function Optional($Object, [string]$Name) {
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -ne $property) { $property.Value }
+}
+function Assert-Flight($Flight, [guid]$ExpectedId) {
+    if ([guid]$Flight.flightId -ne $ExpectedId -or $Flight.friendlyName -cne 'Development' -or
+        @($Flight.groupIds).Count -ne 1 -or [string]$Flight.groupIds[0] -cne $GroupId) {
+        throw 'Flight identity, name, or tester group differs from approval.'
+    }
+    if ($null -ne (Optional $Flight 'lastPublishedFlightSubmission')) {
+        throw 'Recovery must not modify a previously published flight.'
+    }
+}
+$record = [ordered]@{ schemaVersion = 1; operation = $Operation; product = $Product; applicationId = $ApplicationId
+    expectedFlightId = $FlightId.ToString(); groupId = $GroupId; submissionId = $SubmissionId; status = 'inspecting' }
+$evidence = [IO.Path]::GetFullPath($EvidencePath, $PWD.Path)
+[void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($evidence))
+function Save-Evidence { [IO.File]::WriteAllText($evidence, ($record | ConvertTo-Json -Depth 10)) }
+Save-Evidence
+$app = Invoke-Api Get $applicationPath
+if ($app.id -cne $ApplicationId -or $app.packageIdentityName -cne $config.identityName -or $app.publisherName -cne $config.publisher) {
+    throw 'Store product does not match the approved identity.'
+}
+# Refuse incomplete enumeration rather than follow an untrusted continuation URL.
+$list = Invoke-Api Get "$applicationPath/listflights?top=100"
+$flights = @($list.value)
+if ($flights.Count -ne [int]$list.totalCount -or (Optional $list '@nextLink')) { throw 'Flight inventory is incomplete.' }
+$matches = @($flights | Where-Object { [guid]$_.flightId -eq $FlightId })
+$record.flightIds = @($flights | ForEach-Object { [string]$_.flightId })
+Save-Evidence
+if ($Operation -eq 'inspect') {
+    $record.status = 'inspected'
+    $record.flights = @($flights | ForEach-Object { [ordered]@{
+        flightId = $_.flightId; friendlyName = $_.friendlyName; groupIds = $_.groupIds
+        pendingSubmissionId = (Optional (Optional $_ 'pendingFlightSubmission') 'id')
+    } })
+    Save-Evidence
+    return
+}
+if ($Operation -eq 'create') {
+    if ($matches.Count -ne 0 -or @($flights | Where-Object friendlyName -IEQ 'Development').Count -ne 0) {
+        throw 'Expected old flight or Development flight already exists; inspect instead of creating another.'
+    }
+    $record.status = 'create-requested'; Save-Evidence
+    # Never retry an ambiguous mutation; inspect the retained intent and remote inventory.
+    $created = Invoke-Api Post "$applicationPath/flights" @{ friendlyName = 'Development'; groupIds = @($GroupId) }
+    $newId = [guid]$created.flightId
+    if ($newId -eq [guid]::Empty -or $newId -eq $FlightId) { throw 'Store returned an invalid replacement flight ID.' }
+    $record.flightId = $newId.ToString(); Save-Evidence
+    $verified = Invoke-Api Get "$applicationPath/flights/$newId"
+    Assert-Flight $verified $newId
+} else {
+    if ($matches.Count -ne 1) { throw 'Expected flight is missing or ambiguous.' }
+    $path = "$applicationPath/flights/$FlightId"
+    $flight = Invoke-Api Get $path
+    Assert-Flight $flight $FlightId
+    $pending = Optional $flight 'pendingFlightSubmission'
+    if ($null -eq $pending -or [string]$pending.id -cne $SubmissionId) { throw 'Pending draft differs from the approved submission.' }
+    $draft = Invoke-Api Get "$path/submissions/$SubmissionId"
+    if ([string]$draft.id -cne $SubmissionId -or [guid]$draft.flightId -ne $FlightId -or
+        $draft.status -cne 'PendingCommit' -or @($draft.flightPackages).Count -ne 0) {
+        throw 'Only the exact empty, uncommitted bootstrap draft may be discarded.'
+    }
+    # Recheck the pending pointer immediately before deleting the exact draft.
+    $fresh = Invoke-Api Get $path
+    Assert-Flight $fresh $FlightId
+    if ([string](Optional $fresh 'pendingFlightSubmission').id -cne $SubmissionId) { throw 'Pending draft changed.' }
+    $record.status = 'discard-requested'; Save-Evidence
+    Invoke-Api Delete "$path/submissions/$SubmissionId" | Out-Null
+    $verified = Invoke-Api Get $path
+    Assert-Flight $verified $FlightId
+    $record.flightId = $FlightId.ToString()
+}
+if ($null -ne (Optional $verified 'pendingFlightSubmission')) { throw 'Flight still has a pending submission.' }
+$record.status = 'verified'; Save-Evidence

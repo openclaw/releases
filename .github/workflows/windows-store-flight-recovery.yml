@@ -1,0 +1,106 @@
+name: Recover Windows Store Development flight
+run-name: Flight recovery · ${{ inputs.product }} · ${{ inputs.operation }} · flight ${{ inputs.flight_id }} · draft ${{ inputs.submission_id }} · group ${{ inputs.group_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        type: choice
+        options: [gateway, companion]
+        required: true
+      operation:
+        type: choice
+        options: [inspect, create, discard-draft]
+        required: true
+        default: inspect
+      flight_id:
+        description: Exact currently configured flight GUID (missing old GUID for create)
+        type: string
+        required: true
+      group_id:
+        description: Exact existing tester group ID; no membership changes
+        type: string
+        required: true
+      submission_id:
+        description: Exact empty bootstrap draft ID, only for discard-draft
+        type: string
+        required: false
+permissions: {}
+concurrency:
+  group: microsoft-store-${{ inputs.product }}
+  cancel-in-progress: false
+jobs:
+  recover:
+    if: github.repository == 'openclaw/releases' && github.ref == 'refs/heads/main'
+    name: Approve exact Development flight recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.product == 'gateway' && 'microsoft-store-gateway' || 'microsoft-store-companion' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Check approval boundary and exact configured flight
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_PRODUCT: ${{ inputs.product }}
+          EXPECTED_FLIGHT: ${{ inputs.flight_id }}
+          CONFIGURED_FLIGHT: ${{ vars[inputs.product == 'gateway' && 'MSSTORE_GATEWAY_DEVELOPMENT_FLIGHT_ID' || 'MSSTORE_COMPANION_DEVELOPMENT_FLIGHT_ID'] }}
+        run: |
+          Import-Module ./scripts/MicrosoftStore.psm1
+          Assert-MicrosoftStoreEnvironment -Product $env:STORE_PRODUCT
+          if ([guid]$env:EXPECTED_FLIGHT -eq [guid]::Empty -or [guid]$env:EXPECTED_FLIGHT -ne [guid]$env:CONFIGURED_FLIGHT) {
+            throw 'Configured flight changed; request a fresh approval.'
+          }
+      - name: Request the environment-bound Store assertion
+        id: oidc
+        shell: pwsh
+        run: |
+          $uri = ./scripts/New-GitHubOidcRequestUri.ps1 -RequestUri $env:ACTIONS_ID_TOKEN_REQUEST_URL -Audience 'api://AzureADTokenExchange'
+          $response = Invoke-RestMethod -Uri $uri -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" }
+          if ([string]::IsNullOrWhiteSpace([string]$response.value)) { throw 'GitHub returned an empty Store assertion.' }
+          "::add-mask::$($response.value)"
+          $path = Join-Path $env:RUNNER_TEMP 'store-recovery-assertion.jwt'
+          [IO.File]::WriteAllText($path, [string]$response.value)
+          & chmod 600 $path
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to restrict Store assertion permissions.' }
+          "assertion_path=$path" >> $env:GITHUB_OUTPUT
+      - name: Execute only the approved recovery operation
+        shell: pwsh
+        env:
+          STORE_PRODUCT: ${{ inputs.product }}
+          OPERATION: ${{ inputs.operation }}
+          FLIGHT_ID: ${{ inputs.flight_id }}
+          GROUP_ID: ${{ inputs.group_id }}
+          SUBMISSION_ID: ${{ inputs.submission_id }}
+          MSSTORE_TENANT_ID: ${{ vars.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ vars.MSSTORE_CLIENT_ID }}
+          MSSTORE_APPLICATION_ID: ${{ vars.MSSTORE_APPLICATION_ID }}
+          ASSERTION_PATH: ${{ steps.oidc.outputs.assertion_path }}
+        run: |
+          $draft = @{}
+          if ($env:SUBMISSION_ID) { $draft.SubmissionId = $env:SUBMISSION_ID }
+          ./scripts/Repair-MicrosoftStoreFlight.ps1 -Operation $env:OPERATION -Product $env:STORE_PRODUCT `
+            -ApplicationId $env:MSSTORE_APPLICATION_ID -FlightId $env:FLIGHT_ID -GroupId $env:GROUP_ID @draft `
+            -TenantId $env:MSSTORE_TENANT_ID -ClientId $env:MSSTORE_CLIENT_ID -ClientAssertionFile $env:ASSERTION_PATH `
+            -EvidencePath ./evidence/flight-recovery.json
+          Get-Content ./evidence/flight-recovery.json >> $env:GITHUB_STEP_SUMMARY
+      - name: Retain recovery intent and verified result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: store-flight-recovery-${{ inputs.product }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Remove the short-lived assertion
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          ASSERTION_PATH: ${{ steps.oidc.outputs.assertion_path }}
+        run: |
+          if ($env:ASSERTION_PATH) { Remove-Item -LiteralPath $env:ASSERTION_PATH -Force -ErrorAction SilentlyContinue }
