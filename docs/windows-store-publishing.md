@@ -77,7 +77,7 @@ cannot target Development and alphas cannot target production. Native automatic
 requests additionally require `MSSTORE_DEVELOPMENT_ENABLED` in the Node repository;
 the central activation flag is independently rechecked after approval.
 
-Finish or explicitly resolve the initial portal draft, then verify certification
+Use the protected first-flight bootstrap below, then verify certification
 and a tester's Store install/upgrade with retained data before enabling either
 automatic-request flag. Successful fixtures or request acceptance are not that
 proof. The builder retains ownership of MSIX versions and upgrade qualification.
@@ -101,8 +101,8 @@ environment overrides or caller inputs:
 
 After setup, use an explicit manual request with `channel=development` and
 `automatic=false` for qualification. It still validates the source and requires
-release-manager approval. Finish or explicitly resolve the portal-created initial
-draft; the publisher never adopts or deletes a foreign draft. Verify commit
+release-manager approval. Use the protected first-flight bootstrap below; ordinary publishing never adopts
+or deletes a foreign draft. Verify commit
 acceptance, certification, and an enrolled tester's real Store install/upgrade
 with retained data before activating automation. Neither an existing flight nor
 passing fixtures establish this live delivery proof.
@@ -219,40 +219,54 @@ as publication. It cannot upload packages, commit submissions, change tester
 membership, or write production submissions. Its run title identifies the exact
 operation, configured flight, draft, and existing tester group before approval.
 
-Start with `operation=inspect`. The other operations are deliberately narrow:
+Start with `operation=inspect`. Creation returns an initial pending submission;
+keep it. The endpoint reference incorrectly says creation has no submissions,
+but Microsoft's [Python sample](https://learn.microsoft.com/en-us/windows/uwp/monetize/python-code-examples-for-the-windows-store-submission-api#create-a-package-flight)
+and [StoreBroker New-ApplicationFlight](https://github.com/microsoft/StoreBroker/blob/master/StoreBroker/StoreIngestionFlightingApi.ps1)
+explicitly use the automatically created first submission. Live API behavior
+matches those implementations. Deleting that initial submission can delete the
+entire never-published flight. Do not use a create/delete loop.
 
-- `create`: require the configured old GUID to be absent and no flight named
-  Development to exist in a complete inventory. Create Development with the
-  approved existing group through the Store API, which creates no initial draft.
-  Read back the new GUID, name, group, and absence of pending/published submissions.
-- `discard-draft`: require the configured flight and sole tester group to match,
-  no published flight submission, and the exact approved draft to be empty and
-  `PendingCommit`. Recheck the pending pointer, delete only that submission via
-  its flight-scoped endpoint, then verify the flight/group survived and no draft
-  remains. Never use the portal's initial-submission Delete as an equivalent:
-  it can remove a never-published flight itself.
+- `create`: require the configured old GUID to be absent and no Development flight
+  in a complete inventory; create Development for the exact existing tester group.
+- `replace-empty-flight`: explicitly replace the exact never-published flight,
+  not its portal-created draft. Approval names the old GUID, exact empty
+  `PendingCommit` draft and sole tester group. Delete the flight, verify absence,
+  then create its API-owned replacement. This changes the flight GUID, not tester
+  membership or production. It is not an ordinary publishing operation.
 
-Example (replace placeholders with the exact observed IDs):
+Both operations retain the new flight GUID and `initialSubmissionId`, verify the
+same name/group, no published submission, and that exact empty pending draft.
+Only `status=verified` proves completed readback. An intent-only receipt means
+inspect and reconcile, never blindly retry a mutation. There is no initial-draft
+delete operation.
+
+After verification, update and read back the central product's
+`MSSTORE_*_DEVELOPMENT_FLIGHT_ID`. Request a fresh manual publication bound to the
+new flight and original qualified source run:
 
 ```sh
-gh workflow run windows-store-flight-recovery.yml --repo openclaw/releases --ref main \
-  -f product=companion -f operation=inspect -f flight_id=CONFIGURED_GUID -f group_id=EXISTING_GROUP_ID
+gh workflow run windows-store-publish.yml --repo openclaw/releases --ref main \
+  -f product=companion -f channel=development -f automatic=false \
+  -f run_id=SOURCE_RUN_ID -f bootstrap_submission_id=VERIFIED_INITIAL_SUBMISSION_ID
 ```
 
-For `discard-draft`, also supply `-f submission_id=EXACT_DRAFT_ID`. Read and
-approve the corresponding environment deployment, then inspect the retained
-`store-flight-recovery-PRODUCT-ATTEMPT` receipt. Only `status=verified` proves a
-mutation and its readback completed. A `create-requested` or `discard-requested`
-receipt records an uncertain mutation, not permission to retry: run inspect and
-reconcile the exact remote state first. The operation never retries mutations or
-silently adopts another flight. Incomplete inventories fail closed.
+The initial ID appears in the run title and approval summary. It is accepted only
+for manual Development requests. After release-manager approval, the publisher
+requires that exact pending ID, no published flight submission, and an empty
+`PendingCommit` draft for the configured flight. It updates that draft directly;
+it does not POST another submission or delete the initial draft on failure.
+A partially uploaded or ambiguously committed bootstrap requires inspection, not
+a blind retry. Normal automated requests omit this input and still reject every
+preexisting pending submission. Production behavior is unchanged.
 
-After successful creation, update only the central product's configured
-`MSSTORE_*_DEVELOPMENT_FLIGHT_ID` to the verified receipt GUID and read it back.
-Do not reuse an approval bound to the old destination: request a fresh publication
-with the original qualified source run, then approve the exact new flight and
-bundle. Recovery is neither package submission nor certification. No activation
-flag or production setting is changed by the recovery workflow.
+Portal-created drafts cannot be updated, deleted or committed with the ingestion
+API. Replacing an explicitly approved empty flight creates an API-owned initial
+draft. Do not edit that draft in Partner Center: Microsoft's API prerequisite
+warns that portal edits revoke API write eligibility.
+
+Recovery is not publication. Verify the exact Microsoft commit receipt, then
+certification and an enrolled tester's installation/upgrade separately.
 
 API contracts:
 [create a flight without a submission](https://learn.microsoft.com/en-us/windows/uwp/monetize/create-a-flight),

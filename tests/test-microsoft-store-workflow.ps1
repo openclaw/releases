@@ -9,7 +9,7 @@ if (-not $step.Success) { throw 'Unable to locate the Store publisher workflow e
 $invoke = [scriptblock]::Create([regex]::Replace($step.Groups['script'].Value, '(?m)^ {10}', ''))
 $fixture = Join-Path ([IO.Path]::GetTempPath()) "central-store-workflow-$([guid]::NewGuid().ToString('N'))"
 $location = Get-Location
-$names = @('STORE_PRODUCT', 'APPROVED_SOURCE', 'MSSTORE_APPLICATION_ID', 'MSSTORE_TENANT_ID', 'MSSTORE_CLIENT_ID', 'MSSTORE_ASSERTION_FILE')
+$names = @('STORE_PRODUCT', 'APPROVED_SOURCE', 'MSSTORE_APPLICATION_ID', 'MSSTORE_TENANT_ID', 'MSSTORE_CLIENT_ID', 'MSSTORE_ASSERTION_FILE', 'BOOTSTRAP_SUBMISSION_ID')
 $original = @{}
 foreach ($name in $names) { $original[$name] = [Environment]::GetEnvironmentVariable($name) }
 try {
@@ -20,9 +20,9 @@ try {
     # external publisher so this proof cannot authenticate or create a draft.
     [IO.File]::WriteAllText((Join-Path $fixture 'scripts/Submit-MicrosoftStore.ps1'), @'
 param([string]$Channel, [string]$FlightId, [string]$BundlePath, [string]$PackageIdentityName, [string]$Publisher,
-      [string]$ApplicationId, [string]$TenantId, [string]$ClientId, [string]$ClientAssertionFile, [string]$EvidencePath)
+      [string]$BootstrapSubmissionId, [string]$ApplicationId, [string]$TenantId, [string]$ClientId, [string]$ClientAssertionFile, [string]$EvidencePath)
 [IO.File]::WriteAllText((Join-Path $PWD 'called.json'), (@{
-    channel = $Channel; flightId = $FlightId; bundle = [IO.Path]::GetFileName($BundlePath); identity = $PackageIdentityName
+    bootstrap = $BootstrapSubmissionId; channel = $Channel; flightId = $FlightId; bundle = [IO.Path]::GetFileName($BundlePath); identity = $PackageIdentityName
 } | ConvertTo-Json))
 '@)
     Set-Location $fixture
@@ -36,6 +36,7 @@ param([string]$Channel, [string]$FlightId, [string]$BundlePath, [string]$Package
         @{ product = 'companion'; channel = 'production'; flightId = ''; bundleName = 'OpenClaw.msixbundle'; identity = 'OpenClawFoundation.OpenClaw' },
         @{ product = 'companion'; channel = 'development'; flightId = 'abcdefab-3333-4444-9999-123456abcdef'; bundleName = 'OpenClaw.msixbundle'; identity = 'OpenClawFoundation.OpenClaw' }
     )) {
+        $env:BOOTSTRAP_SUBMISSION_ID = if ($case.channel -ceq 'development') { '123' } else { '' }
         $env:STORE_PRODUCT = $case.product
         $env:APPROVED_SOURCE = $case | ConvertTo-Json -Compress
         & $invoke
@@ -43,6 +44,7 @@ param([string]$Channel, [string]$FlightId, [string]$BundlePath, [string]$Package
         foreach ($property in @('channel', 'flightId', 'identity')) {
             if ($called.$property -cne $case.$property) { throw "Workflow changed the approved destination: $property" }
         }
+        if ($called.bootstrap -cne $env:BOOTSTRAP_SUBMISSION_ID) { throw 'Bootstrap approval lost.' }
         if ($called.bundle -cne $case.bundleName) { throw 'Workflow changed the approved bundle.' }
         $retained = Get-Content evidence/approved-source.json -Raw | ConvertFrom-Json
         if ($retained.flightId -cne $case.flightId -or $retained.channel -cne $case.channel) {
