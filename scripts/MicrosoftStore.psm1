@@ -172,7 +172,11 @@ function Get-AuthorizedStoreSource {
         $resolutionArtifactId = [string]$resolution[0].id
         & $DownloadInvoker $config.repository $RunId 'openclaw-source-resolution' $Directory | Out-Null
         $source = Get-Content -LiteralPath (Join-Path $Directory 'source-resolution.json') -Raw | ConvertFrom-Json -Depth 20
-        $identity = $source.releaseIdentitySource
+        # Packaging emits a separate identity only for an independently selected payload.
+        # Channel-selected builds, including exact betas, carry identity on the source itself.
+        $identityProperty = $source.PSObject.Properties['releaseIdentitySource']
+        $identity = if ($null -eq $identityProperty) { $source } else { $identityProperty.Value }
+        if ($null -eq $identity) { throw 'Gateway release identity must not be null.' }
         $releaseChannel = if ($development) { 'beta' } else { 'stable' }
         if ($source.repository -cne 'https://github.com/openclaw/openclaw' -or
             $source.workflowRunId -cne $RunId -or $source.packagingCommit -cne $run.head_sha -or

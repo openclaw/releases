@@ -60,6 +60,12 @@ function New-Fixture([string]$Product, [switch]$Promotion, [switch]$Beta, [switc
             }
         }
     } else { [pscustomobject]@{ runId = '41'; runAttempt = 1; releaseTag = "v$releaseVersion"; sourceSha = $sha; bundleSha256 = '' } }
+    if ($gateway -and $Beta) {
+        # Exact prereleases use the payload source itself as their release identity.
+        $source | Add-Member channel $releaseChannel
+        $source | Add-Member releaseTag "v$releaseVersion"
+        $source.PSObject.Properties.Remove('releaseIdentitySource')
+    }
     $fixture = [pscustomobject]@{
         product = $Product; directory = $directory; run = $run; source = $source; tagCommit = $sha; draft = $false; mainHistory = $true
         channel = if ($Beta -or $Alpha) { 'development' } else { 'production' }
@@ -224,6 +230,29 @@ try {
         $fixture = New-Fixture gateway
         $fixture.source.releaseIdentitySource.channel = 'beta'
         Assert-Fails { Get-Source $fixture } 'selected channel'
+    }
+    Test-Case 'Gateway channel-selected stable source is its own release identity' {
+        $fixture = New-Fixture gateway
+        $fixture.source | Add-Member channel 'stable'
+        $fixture.source | Add-Member releaseTag 'v2026.10.6'
+        $fixture.source.PSObject.Properties.Remove('releaseIdentitySource')
+        $source = Get-Source $fixture
+        if ($source.releaseIdentityTag -cne $source.releaseTag -or $source.releaseIdentitySha -cne $source.sourceSha) {
+            throw 'Direct source identity was not retained.'
+        }
+    }
+    foreach ($scenario in @('channel', 'release tag', 'commit', 'null nested identity', 'malformed nested identity')) {
+        Test-Case "Gateway direct beta rejects invalid identity: $scenario" {
+            $fixture = New-Fixture gateway -Beta
+            switch ($scenario) {
+                'channel' { $fixture.source.channel = 'stable' }
+                'release tag' { $fixture.source.releaseTag = 'v2026.10.7-beta.1' }
+                'commit' { $fixture.source.resolvedCommit = 'e' * 40 }
+                'null nested identity' { $fixture.source | Add-Member releaseIdentitySource $null }
+                'malformed nested identity' { $fixture.source | Add-Member releaseIdentitySource ([pscustomobject]@{}) }
+            }
+            Assert-Fails { Get-Source $fixture } 'identity|selected channel|tag|property'
+        }
     }
     foreach ($channel in @('development', 'Development', 'DEVELOPMENT')) {
         Test-Case "Gateway beta is approved for its configured flight: $channel" {
