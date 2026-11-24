@@ -9,7 +9,7 @@ on:
         required: true
       operation:
         type: choice
-        options: [inspect, create, replace-empty-flight]
+        options: [inspect, create, migrate-empty-flight]
         required: true
         default: inspect
       flight_id:
@@ -21,7 +21,7 @@ on:
         type: string
         required: true
       submission_id:
-        description: Exact empty bootstrap draft ID; replacement deletes the never-published flight
+        description: Exact empty legacy draft ID; migration preserves it and creates Development (API)
         type: string
         required: false
 permissions: {}
