@@ -229,17 +229,25 @@ entire never-published flight. Do not use a create/delete loop.
 
 - `create`: require the configured old GUID to be absent and no Development flight
   in a complete inventory; create Development for the exact existing tester group.
-- `replace-empty-flight`: explicitly replace the exact never-published flight,
-  not its portal-created draft. Approval names the old GUID, exact empty
-  `PendingCommit` draft and sole tester group. Delete the flight, verify absence,
-  then create its API-owned replacement. This changes the flight GUID, not tester
-  membership or production. It is not an ordinary publishing operation.
+- `migrate-empty-flight`: preserve the exact empty, never-published legacy
+  Development flight and create **Development (API)** for the same sole tester
+  group. Approval names the old GUID and exact empty `PendingCommit` draft.
+  A complete inventory must show no existing Development (API) flight; a repeated
+  or ambiguous create fails closed. The receipt records `preservedFlightId`, the
+  new GUID, and its initial submission. No existing flight, draft, tester group,
+  or production submission is updated or deleted.
+
+Portal-owned flights can reject API deletion of the whole flight as well as the
+initial draft. Migration therefore does not try deletion or require Partner
+Center cleanup. The old empty flight stays inert. Configure only the new API-owned
+GUID for publishing; its first pending submission is used exactly once, and
+subsequent releases use the ordinary automated publisher. Creating the destination
+without `rankHigherThan` gives it highest rank per Microsoft's flight API contract.
 
 Both operations retain the new flight GUID and `initialSubmissionId`, verify the
 same name/group, no published submission, and that exact empty pending draft.
 Only `status=verified` proves completed readback. An intent-only receipt means
-inspect and reconcile, never blindly retry a mutation. There is no initial-draft
-delete operation.
+inspect and reconcile, never blindly retry a mutation. There is no flight or initial-draft delete operation.
 
 After verification, update and read back the central product's
 `MSSTORE_*_DEVELOPMENT_FLIGHT_ID`. Request a fresh manual publication bound to the
@@ -261,8 +269,8 @@ a blind retry. Normal automated requests omit this input and still reject every
 preexisting pending submission. Production behavior is unchanged.
 
 Portal-created drafts cannot be updated, deleted or committed with the ingestion
-API. Replacing an explicitly approved empty flight creates an API-owned initial
-draft. Do not edit that draft in Partner Center: Microsoft's API prerequisite
+API. Migrating an explicitly approved empty flight creates a separate API-owned
+initial draft without changing the legacy flight. Do not edit that draft in Partner Center: Microsoft's API prerequisite
 warns that portal edits revoke API write eligibility.
 
 Recovery is not publication. Verify the exact Microsoft commit receipt, then
