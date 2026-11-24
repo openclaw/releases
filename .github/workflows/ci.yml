@@ -28,6 +28,9 @@ jobs:
           ./tests/test-microsoft-store-workflow.ps1
 
   validate:
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -110,6 +113,7 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Upload restored proof
+        id: proof
         uses: actions/upload-artifact@v7
         with:
           name: action-proof-${{ runner.os }}
@@ -117,13 +121,34 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Download proof
-        uses: actions/download-artifact@v8
-        with:
-          name: action-proof-${{ runner.os }}
-          path: ${{ runner.temp }}/action-proof-downloaded
-
-      - name: Verify round-trip content
+      # Download the immutable upload result directly; immediate name/list lookup
+      # can miss an artifact that upload-artifact has already finalized.
+      - name: Download and verify uploaded proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROOF_ARTIFACT_ID: ${{ steps.proof.outputs.artifact-id }}
+          PROOF_ARTIFACT_DIGEST: ${{ steps.proof.outputs.artifact-digest }}
         run: |
-          printf 'release action round-trip proof\n' | diff - "$RUNNER_TEMP/action-proof-downloaded/proof.txt"
-          echo "Cache and artifact round trips passed."
+          python3 - <<'PYTHON'
+          import hashlib
+          import io
+          import os
+          import re
+          import subprocess
+          import zipfile
+
+          artifact_id = os.environ["PROOF_ARTIFACT_ID"]
+          digest = os.environ["PROOF_ARTIFACT_DIGEST"]
+          if not re.fullmatch(r"[1-9][0-9]*", artifact_id) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit("Upload did not return a valid artifact ID and SHA-256 digest.")
+          archive = subprocess.run(
+              ["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{artifact_id}/zip"],
+              check=True, stdout=subprocess.PIPE,
+          ).stdout
+          if hashlib.sha256(archive).hexdigest() != digest:
+              raise SystemExit("Downloaded archive differs from the uploaded artifact digest.")
+          with zipfile.ZipFile(io.BytesIO(archive)) as proof:
+              if proof.namelist() != ["proof.txt"] or proof.read("proof.txt") != b"release action round-trip proof\n":
+                  raise SystemExit("Cache and artifact round-trip content differs from the expected proof.")
+          print("Cache and artifact round trips passed.")
+          PYTHON
